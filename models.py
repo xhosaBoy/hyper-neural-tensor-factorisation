@@ -110,8 +110,18 @@ class HypERPlus(torch.nn.Module):
         # self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
         self.register_parameter('b', Parameter(torch.zeros(1)))
 
-        self.loss = torch.nn.BCELoss()
+        # self.loss = torch.nn.BCELoss()
+        self.loss = self.contrastive_max_margin_loss
 
+    def contrastive_max_margin_loss(self, predictions):
+
+        temp1 = torch.clamp((predictions[:, 1] - predictions[:, 0]) + 1, min=0)
+        temp1 = torch.sum(temp1)
+
+        # temp2 = tf.sqrt(sum([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
+        # temp = temp1 + (regularization * temp2)
+
+        return temp1
 
     def init(self):
 
@@ -119,19 +129,20 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.R.weight.data)
 
 
-    def forward(self, e1_idx, r_idx, e2_idx):
+    def forward(self, e1_idx, r_idx, e2_idx, ec_idx):
 
         e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
-        E = torch.cat((e1, e2), 3)
+        ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
 
-        print('e1:', e1.size())
-        print('e2:', e2.size())
-        print('E:', E.size())
+        E = torch.cat((e1, e2), 3)
+        Ec = torch.cat((e1, ec), 3)
 
         r = self.R(r_idx)
         x = self.bn0(E)
         x = self.inp_drop(x)
+        xc = self.bn0(Ec)
+        xc = self.inp_drop(xc)
 
         # Hpyer network
         k = self.fc1(r)
@@ -139,6 +150,7 @@ class HypERPlus(torch.nn.Module):
         k = k.view(E.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         x = x.permute(1, 0, 2, 3)
+        xc = xc.permute(1, 0, 2, 3)
 
         # convolution
         x = F.conv2d(x, k, groups=E.size(0))
@@ -146,6 +158,11 @@ class HypERPlus(torch.nn.Module):
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
+        xc = F.conv2d(xc, k, groups=Ec.size(0))
+        xc = xc.view(Ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, Ec.size(3) - self.filt_w + 1)
+        xc = xc.permute(0, 3, 4, 1, 2)
+        xc = torch.sum(xc, dim=3)
+        xc = xc.permute(0, 3, 1, 2).contiguous()
 
         # regularisation
         x = self.bn1(x)
@@ -154,19 +171,27 @@ class HypERPlus(torch.nn.Module):
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        print('x regularisation:', x.size())
+        xc = self.bn1(xc)
+        xc = self.feature_map_drop(xc)
+        xc = xc.view(Ec.size(0), -1)
+        xc = self.fc(xc)
+        xc = self.hidden_drop(xc)
+        xc = self.bn2(xc)
 
         # fully connected layer commin up
         x = self.fc2(x)
         x = F.tanh(x)
-        print('x Relu:', x.size())
+        xc = self.fc2(xc)
+        xc = F.tanh(xc)
+        print('x tanh:', x.size())
 
         # bias
-        x += self.b.expand_as(x)
+        x = x + self.b.expand_as(x)
+        xc = xc + self.b.expand_as(xc)
 
         # # prediction
         # pred = F.sigmoid(x)
-        pred = x
+        pred = torch.cat((x, xc), 0).view(-1, 2)
 
         return pred
 

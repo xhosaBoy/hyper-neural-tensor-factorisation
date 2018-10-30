@@ -1,6 +1,8 @@
 # std
 import time
+import copy
 import pickle
+import random
 import argparse
 from collections import defaultdict
 from pprint import pprint
@@ -51,14 +53,21 @@ class Experiment:
 
         return er_vocab
 
-    def get_batch(self, train_data_idxs, idx):
+    def get_batch(self, train_data_idxs, er_vocab, er_vocab_pairs, idx):
 
-        batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
+        batch = list()
+        # batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         targets = np.zeros((len(batch), len(d.entities))) # set all e2 relations for e1,r pair to true
+        corrupt_keys = copy.deepcopy(er_vocab_pairs)
 
-        # for idx, pair in enumerate(batch):
-        #     targets[idx, er_vocab[pair]] = 1.
-        #     batches.append((pair[0], pair[1], er_vocab[pair]))
+        for i in range(idx, min(idx + self.batch_size, len(train_data_idxs))):
+            key = (train_data_idxs[i][0],train_data_idxs[i][1])
+            if key in corrupt_keys:
+                corrupt_keys.remove(key)
+            corrupt_key = random.choice(corrupt_keys)
+            e_corrupt = er_vocab[corrupt_key][0]
+            training_sample = train_data_idxs[i][0], train_data_idxs[i][1], train_data_idxs[i][2], e_corrupt
+            batch.append(training_sample)
 
         targets = torch.FloatTensor(targets)
         if self.cuda:
@@ -147,6 +156,12 @@ class Experiment:
         if self.decay_rate:
             scheduler = ExponentialLR(opt, self.decay_rate)
 
+        er_vocab = self.get_er_vocab(train_data_idxs)
+        er_vocab_pairs = list(er_vocab.keys())
+        print('sample ER:', er_vocab_pairs[0])
+        print(er_vocab[er_vocab_pairs[0]])
+        print(len(er_vocab_pairs))
+
         print('train_data_idxs:', train_data_idxs[:10])
         print("Starting training...")
 
@@ -156,47 +171,46 @@ class Experiment:
             losses = []
             np.random.shuffle(train_data_idxs)
 
-            # for j in range(0, len(er_vocab_pairs), self.batch_size):
-            for j in range(1):
-                data_batch, targets = self.get_batch(train_data_idxs, j)
+            for j in range(0, len(er_vocab_pairs), self.batch_size):
+            # for j in range(1):
+                data_batch, targets = self.get_batch(train_data_idxs, er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
                 e1_idx = torch.tensor(data_batch[:,0])
                 r_idx = torch.tensor(data_batch[:,1])
                 e2_idx = torch.tensor(data_batch[:,2])
-
-                print('e1_idx:', e1_idx)
-                print('r_idx:', r_idx)
-                print('e2_idx:', e2_idx)
+                ec_idx = torch.tensor(data_batch[:,3])
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
                     e2_idx = e2_idx.cuda()
+                    ec_idx = ec_idx.cuda()
 
-                predictions = model.forward(e1_idx, r_idx, e2_idx)
-                print('predictions:', predictions)
+                predictions = model.forward(e1_idx, r_idx, e2_idx, ec_idx)
 
-            #     print('predictions size:', predictions.size())
-            #     if self.label_smoothing:
-            #         targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
-            #     loss = model.loss(predictions, targets)
-            #     loss.backward()
-            #     opt.step()
+                # if self.label_smoothing:
+                #     targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
 
-            # if self.decay_rate:
-            #     scheduler.step()
-            # losses.append(loss.item())
+                # loss = model.loss(predictions)
+                loss = model.loss(predictions)
+                print('loss:', loss)
+                loss.backward()
+                opt.step()
 
-        #     print(it)
-        #     print(np.mean(losses))
+            if self.decay_rate:
+                scheduler.step()
+            losses.append(loss.item())
 
-        #     model.eval()
-        #     with torch.no_grad():
-        #         print("Validation:")
-        #         self.evaluate(model, d.valid_data)
-        #         if not it % 2:
-        #             print("Test:")
-        #             self.evaluate(model, d.test_data)
+            print(it)
+            print(np.mean(losses))
+
+            model.eval()
+            with torch.no_grad():
+                print("Validation:")
+                self.evaluate(model, d.valid_data)
+                # if not it % 2:
+                #     print("Test:")
+                #     self.evaluate(model, d.test_data)
 
 
 if __name__ == '__main__':

@@ -37,25 +37,34 @@ class Experiment:
                        "out_channels": out_channels, "filt_h": filt_h, "filt_w": filt_w}
 
     def get_data_idxs(self, data):
+
         data_idxs = [(self.entity_idxs[data[i][0]], self.relation_idxs[data[i][1]], \
                       self.entity_idxs[data[i][2]]) for i in range(len(data))]
+
         return data_idxs
 
     def get_er_vocab(self, data):
+
         er_vocab = defaultdict(list)
         for triple in data:
             er_vocab[(triple[0], triple[1])].append(triple[2])
+
         return er_vocab
 
-    def get_batch(self, er_vocab, er_vocab_pairs, idx):
+    def get_batch(self, train_data_idxs, idx):
 
-        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
+        batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         targets = np.zeros((len(batch), len(d.entities))) # set all e2 relations for e1,r pair to true
-        for idx, pair in enumerate(batch):
-            targets[idx, er_vocab[pair]] = 1.
+
+        # for idx, pair in enumerate(batch):
+        #     targets[idx, er_vocab[pair]] = 1.
+        #     batches.append((pair[0], pair[1], er_vocab[pair]))
+
         targets = torch.FloatTensor(targets)
         if self.cuda:
             targets = targets.cuda()
+
+        # return np.array(batch), targets
         return np.array(batch), targets
 
 
@@ -108,15 +117,18 @@ class Experiment:
 
     def train_and_eval(self):
 
-        print("Training the %s model..." % model_name)
+        # map entities, relations, and training data to ids
+        print('Training the %s model...' % model_name)
         self.entity_idxs = {d.entities[i]:i for i in range(len(d.entities))}
         self.relation_idxs = {d.relations[i]:i for i in range(len(d.relations))}
         train_data_idxs = self.get_data_idxs(d.train_data)
         print('train_data_idxs:')
         pprint(train_data_idxs[:10])
-        print("Number of training data points: %d" % len(train_data_idxs))
+        print('Number of training data points: %d' % len(train_data_idxs))
 
-        if model_name.lower() == "hype":
+        if model_name.lower() == "hyperplus":
+            model = HypERPlus(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+        elif model_name.lower() == "hype":
             model = HypE(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif model_name.lower() == "hyper":
             model = HypER(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
@@ -126,7 +138,7 @@ class Experiment:
             model = ConvE(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif model_name.lower() == "complex":
             model = ComplEx(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
-        print([value.numel() for value in model.parameters()])
+        print('Model parameters:', [value.numel() for value in model.parameters()])
 
         if self.cuda:
             model.cuda()
@@ -135,56 +147,63 @@ class Experiment:
         if self.decay_rate:
             scheduler = ExponentialLR(opt, self.decay_rate)
 
-        er_vocab = self.get_er_vocab(train_data_idxs)
-        view_key = list(er_vocab.keys())[0]
-        print('sample enitity:', view_key)
-        pprint(er_vocab[view_key])
-
-        er_vocab_pairs = list(er_vocab.keys())
-        print(len(er_vocab_pairs))
-
+        print('train_data_idxs:', train_data_idxs[:10])
         print("Starting training...")
 
-        for it in range(1, self.num_iterations+1):
+        for it in range(1, self.num_iterations + 1):
+
             model.train()
             losses = []
-            np.random.shuffle(er_vocab_pairs)
-            for j in range(0, len(er_vocab_pairs), self.batch_size):
-                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
+            np.random.shuffle(train_data_idxs)
+
+            # for j in range(0, len(er_vocab_pairs), self.batch_size):
+            for j in range(1):
+                data_batch, targets = self.get_batch(train_data_idxs, j)
                 opt.zero_grad()
                 e1_idx = torch.tensor(data_batch[:,0])
                 r_idx = torch.tensor(data_batch[:,1])
+                e2_idx = torch.tensor(data_batch[:,2])
+
+                print('e1_idx:', e1_idx)
+                print('r_idx:', r_idx)
+                print('e2_idx:', e2_idx)
+
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
-                predictions = model.forward(e1_idx, r_idx)
-                print('predictions size:', predictions.size())
-                if self.label_smoothing:
-                    targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
-                loss = model.loss(predictions, targets)
-                loss.backward()
-                opt.step()
-            if self.decay_rate:
-                scheduler.step()
-            losses.append(loss.item())
+                    e2_idx = e2_idx.cuda()
 
-            print(it)
-            print(np.mean(losses))
+                predictions = model.forward(e1_idx, r_idx, e2_idx)
+                print('predictions:', predictions)
 
-            model.eval()
-            with torch.no_grad():
-                print("Validation:")
-                self.evaluate(model, d.valid_data)
-                if not it % 2:
-                    print("Test:")
-                    self.evaluate(model, d.test_data)
+            #     print('predictions size:', predictions.size())
+            #     if self.label_smoothing:
+            #         targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
+            #     loss = model.loss(predictions, targets)
+            #     loss.backward()
+            #     opt.step()
+
+            # if self.decay_rate:
+            #     scheduler.step()
+            # losses.append(loss.item())
+
+        #     print(it)
+        #     print(np.mean(losses))
+
+        #     model.eval()
+        #     with torch.no_grad():
+        #         print("Validation:")
+        #         self.evaluate(model, d.valid_data)
+        #         if not it % 2:
+        #             print("Test:")
+        #             self.evaluate(model, d.test_data)
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--algorithm', type=str, default="HypER", nargs="?",
-                    help='Which algorithm to use: HypER, ConvE, DistMult, or ComplEx')
+    parser.add_argument('--algorithm', type=str, default="HypERPlus", nargs="?",
+                    help='Which algorithm to use: HypERPlus, HypER, ConvE, DistMult, or ComplEx')
     # parser.add_argument('--dataset', type=str, default="FB15k-237", nargs="?",
     #                 help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
     parser.add_argument('--dataset', type=str, default="WN18", nargs="?",

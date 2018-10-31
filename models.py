@@ -39,25 +39,25 @@ class HypER(torch.nn.Module):
 
     def forward(self, e1_idx, r_idx):
 
-        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
-        r = self.R(r_idx)
-        x = self.bn0(e1)
-        x = self.inp_drop(x)
-
         # Hpyer network
+        r = self.R(r_idx)
         k = self.fc1(r)
         k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
-        k = k.view(e1.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
+        k = k.view(len(e1_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
+        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
+        x = self.bn0(e1)
+        x = self.inp_drop(x)
         x = x.permute(1, 0, 2, 3)
 
+        # convnet
         x = F.conv2d(x, k, groups=e1.size(0))
         x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) - self.filt_w + 1)
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
-        print('x convoluted:', x.size())
 
+        # regularisation
         x = self.bn1(x)
         x = self.feature_map_drop(x)
         x = x.view(e1.size(0), -1)
@@ -65,11 +65,9 @@ class HypER(torch.nn.Module):
         x = self.hidden_drop(x)
         x = self.bn2(x)
         x = F.relu(x)
-        print('x nonlinearity:', x.size())
 
-        # fully connected layer
+        # dot product by e2
         x = torch.mm(x, self.E.weight.transpose(1,0))
-        print('x e2 dot product:', x.size())
 
         # bias
         x += self.b.expand_as(x)
@@ -100,28 +98,17 @@ class HypERPlus(torch.nn.Module):
 
         self.bn0 = torch.nn.BatchNorm2d(self.in_channels)
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
-        self.bn2 = torch.nn.BatchNorm1d(2 * d1)
+        self.bn2 = torch.nn.BatchNorm1d(d1)
 
-        fc_length = (1 - self.filt_h + 1) * (2 * d1 - self.filt_w + 1) * self.out_channels
-        self.fc = torch.nn.Linear(fc_length, 2 * d1)
+        fc_length = (1 - self.filt_h + 1) * (d1 - self.filt_w + 1) * self.out_channels
+        self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
-        self.fc2 = torch.nn.Linear(400, 1)
-        # self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
-        self.register_parameter('b', Parameter(torch.zeros(1)))
+        self.fc2 = torch.nn.Linear(200, 1)
+        self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        # self.loss = torch.nn.BCELoss()
-        self.loss = self.contrastive_max_margin_loss
+        self.loss = torch.nn.BCELoss()
 
-    def contrastive_max_margin_loss(self, predictions):
-
-        temp1 = torch.clamp((predictions[:, 1] - predictions[:, 0]) + 1, min=0)
-        temp1 = torch.sum(temp1)
-
-        # temp2 = tf.sqrt(sum([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
-        # temp = temp1 + (regularization * temp2)
-
-        return temp1
 
     def init(self):
 
@@ -129,69 +116,46 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.R.weight.data)
 
 
-    def forward(self, e1_idx, r_idx, e2_idx, ec_idx):
+    def forward(self, e1_idx, r_idx):
 
-        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
-        e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
-        ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
-
-        E = torch.cat((e1, e2), 3)
-        Ec = torch.cat((e1, ec), 3)
-
-        r = self.R(r_idx)
-        x = self.bn0(E)
-        x = self.inp_drop(x)
-        xc = self.bn0(Ec)
-        xc = self.inp_drop(xc)
+        # only compute based on e2 batch
+        # change target from e2 to relationship
 
         # Hpyer network
+        r = self.R(r_idx)
         k = self.fc1(r)
         k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
-        k = k.view(E.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
+        k = k.view(len(e1_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
+        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
+        x = self.bn0(e1)
+        x = self.inp_drop(x)
         x = x.permute(1, 0, 2, 3)
-        xc = xc.permute(1, 0, 2, 3)
 
-        # convolution
-        x = F.conv2d(x, k, groups=E.size(0))
-        x = x.view(E.size(0), 1, self.out_channels, 1 - self.filt_h + 1, E.size(3) - self.filt_w + 1)
+        # convnet
+        x = F.conv2d(x, k, groups=e1.size(0))
+        x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) - self.filt_w + 1)
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
-        xc = F.conv2d(xc, k, groups=Ec.size(0))
-        xc = xc.view(Ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, Ec.size(3) - self.filt_w + 1)
-        xc = xc.permute(0, 3, 4, 1, 2)
-        xc = torch.sum(xc, dim=3)
-        xc = xc.permute(0, 3, 1, 2).contiguous()
 
         # regularisation
         x = self.bn1(x)
         x = self.feature_map_drop(x)
-        x = x.view(E.size(0), -1)
+        x = x.view(e1.size(0), -1)
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        xc = self.bn1(xc)
-        xc = self.feature_map_drop(xc)
-        xc = xc.view(Ec.size(0), -1)
-        xc = self.fc(xc)
-        xc = self.hidden_drop(xc)
-        xc = self.bn2(xc)
+        x = F.relu(x)
 
-        # fully connected layer commin up
-        x = self.fc2(x)
-        x = F.tanh(x)
-        xc = self.fc2(xc)
-        xc = F.tanh(xc)
-        print('x tanh:', x.size())
+        # dot product by e2
+        x = torch.mm(x, self.E.weight.transpose(1,0))
 
         # bias
-        x = x + self.b.expand_as(x)
-        xc = xc + self.b.expand_as(xc)
+        x += self.b.expand_as(x)
 
-        # # prediction
-        # pred = F.sigmoid(x)
-        pred = torch.cat((x, xc), 0).view(-1, 2)
+        # prediction
+        pred = F.sigmoid(x)
 
         return pred
 

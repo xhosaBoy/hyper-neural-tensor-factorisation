@@ -53,31 +53,19 @@ class Experiment:
 
         return er_vocab
 
-    def get_batch(self, train_data_idxs, er_vocab, er_vocab_pairs, idx):
+    def get_batch(self, er_vocab, er_vocab_pairs, idx):
 
-        batch = list()
-        # batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
+        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
         targets = np.zeros((len(batch), len(d.entities))) # set all e2 relations for e1,r pair to true
-        corrupt_keys = copy.deepcopy(er_vocab_pairs)
-
-        for i in range(idx, min(idx + self.batch_size, len(train_data_idxs))):
-            key = (train_data_idxs[i][0],train_data_idxs[i][1])
-            if key in corrupt_keys:
-                corrupt_keys.remove(key)
-            corrupt_key = random.choice(corrupt_keys)
-            e_corrupt = er_vocab[corrupt_key][0]
-            training_sample = train_data_idxs[i][0], train_data_idxs[i][1], train_data_idxs[i][2], e_corrupt
-            batch.append(training_sample)
-
+        for idx, pair in enumerate(batch):
+            targets[idx, er_vocab[pair]] = 1.
         targets = torch.FloatTensor(targets)
         if self.cuda:
             targets = targets.cuda()
-
-        # return np.array(batch), targets
         return np.array(batch), targets
 
-
     def evaluate(self, model, data):
+
         hits = []
         ranks = []
         for i in range(10):
@@ -172,28 +160,21 @@ class Experiment:
             np.random.shuffle(train_data_idxs)
 
             for j in range(0, len(er_vocab_pairs), self.batch_size):
-            # for j in range(1):
-                data_batch, targets = self.get_batch(train_data_idxs, er_vocab, er_vocab_pairs, j)
+                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
                 e1_idx = torch.tensor(data_batch[:,0])
                 r_idx = torch.tensor(data_batch[:,1])
-                e2_idx = torch.tensor(data_batch[:,2])
-                ec_idx = torch.tensor(data_batch[:,3])
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
-                    e2_idx = e2_idx.cuda()
-                    ec_idx = ec_idx.cuda()
 
-                predictions = model.forward(e1_idx, r_idx, e2_idx, ec_idx)
+                predictions = model.forward(e1_idx, r_idx)
 
-                # if self.label_smoothing:
-                #     targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
+                if self.label_smoothing:
+                    targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
 
-                # loss = model.loss(predictions)
-                loss = model.loss(predictions)
-                print('loss:', loss)
+                loss = model.loss(predictions, targets)
                 loss.backward()
                 opt.step()
 
@@ -208,9 +189,9 @@ class Experiment:
             with torch.no_grad():
                 print("Validation:")
                 self.evaluate(model, d.valid_data)
-                # if not it % 2:
-                #     print("Test:")
-                #     self.evaluate(model, d.test_data)
+                if not it % 2:
+                    print("Test:")
+                    self.evaluate(model, d.test_data)
 
 
 if __name__ == '__main__':
@@ -218,8 +199,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm', type=str, default="HypERPlus", nargs="?",
                     help='Which algorithm to use: HypERPlus, HypER, ConvE, DistMult, or ComplEx')
-    # parser.add_argument('--dataset', type=str, default="FB15k-237", nargs="?",
-    #                 help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
     parser.add_argument('--dataset', type=str, default="WN18", nargs="?",
                     help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
     args = parser.parse_args()
@@ -237,7 +216,7 @@ if __name__ == '__main__':
         torch.cuda.manual_seed_all(seed)
 
     d = Data(data_dir=data_dir, reverse=True)
-    experiment = Experiment(model_name, num_iterations=1, batch_size=128, learning_rate=0.001,
+    experiment = Experiment(model_name, num_iterations=100, batch_size=128, learning_rate=0.01,
                             decay_rate=0.99, ent_vec_dim=200, rel_vec_dim=200, cuda=False,
                             input_dropout=0.2, hidden_dropout=0.3, feature_map_dropout=0.2,
                             in_channels=1, out_channels=32, filt_h=1, filt_w=9, label_smoothing=0.1)

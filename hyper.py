@@ -200,10 +200,11 @@ class Experiment:
                     targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
 
                 loss = model.loss(predictions)
-                # # accuracy = model.accuracy(predictions, targets)
+                accuracy = model.accuracy(predictions)
 
-                logging.info(f'loss: {loss}')
-                # logging.info(f'accuracy: {accuracy}')
+                if j % 10 == 0:
+                    logging.info(f'loss: {loss}')
+                    logging.info(f'accuracy: {accuracy}')
 
                 loss.backward()
                 opt.step()

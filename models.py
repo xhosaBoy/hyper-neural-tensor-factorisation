@@ -125,17 +125,18 @@ class HypERPlus(torch.nn.Module):
     def contrastive_max_margin_loss(self, predictions):
 
         scalar = torch.FloatTensor([0])
-        contrast = predictions[:, 0] + predictions[:, 1]
-        loss = torch.max(1 - contrast, scalar.expand_as(contrast))
+        contrast = predictions[:, 1] - predictions[:, 0]
+        loss = torch.max(1 + contrast, scalar.expand_as(contrast))
         cost = torch.sum(loss)
 
         return cost
 
-    def accuracy(self, predictions, targets):
+    def accuracy(self, predictions):
 
-        correct_prediction = torch.eq(torch.argmax(predictions, 1), torch.max(targets, 1)[1])
-        accuracy = torch.mean(correct_prediction.float())
-        logging.debug(f'accuracy: {accuracy}')
+        predictions_size = predictions.size(0)
+        predictions = torch.ge(predictions[:, 0], 0)
+        true_count = torch.sum(predictions).float()
+        accuracy = true_count / predictions_size
 
         return accuracy
 
@@ -229,7 +230,7 @@ class HypERPlus(torch.nn.Module):
         x_in_e = torch.cat((x, x2), 1)
         x_in_c = torch.cat((x, x3), 1)
 
-        logging.debug(f'x_in_e: {x_in_e}')
+        logging.debug(f'x_in_e: {x_in_e.size()}')
         logging.debug(f'x_in_c: {x_in_c.size()}')
 
         # fully-connected classification layer

@@ -20,7 +20,7 @@ from load_data import Data
 from models import *
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s:%(levelname)s:%(message)s')
 
 
@@ -50,29 +50,31 @@ class Experiment:
 
         return data_idxs
 
-    def get_er_vocab(self, data):
+    def get_sp_vocab(self, data):
 
-        er_vocab = defaultdict(list)
+        sp_vocab = defaultdict(list)
         for triple in data:
-            er_vocab[(triple[0], triple[1])].append(triple[2])
+            sp_vocab[(triple[0], triple[1])].append(triple[2])
 
-        return er_vocab
+        return sp_vocab
 
-    def get_batch(self, train_data_idxs, er_vocab, er_vocab_pairs, idx):
+    def get_batch(self, train_data_idxs, sp_vocab, sp_vocab_pairs, idx):
 
-        batch = train_data_idxs[
-            idx:min(idx + self.batch_size, len(er_vocab_pairs))]
-        # set all e2 relations for e1,r pair to true
-        targets = np.zeros((len(batch), len(d.relations)))
+        spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(sp_vocab_pairs))]
+        sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
+        random.shuffle(sp_batch)
 
-        for idx, triple in enumerate(batch):
-            targets[idx, triple[1]] = 1.
+        # build false samples
+        pc_batch = [sp_vocab[pair] for pair in sp_batch]
+        spoc_batch = [triple + (false_entity[0],) for triple, false_entity in zip(spo_batch, pc_batch)]
 
+        # build target: set all e2 relations for e1,r pair to true, binary loss at first
+        targets = np.zeros((len(sp_batch), 2))
         targets = torch.FloatTensor(targets)
+        logging.debug(f'targets size: {targets.size()}')
         if self.cuda:
             targets = targets.cuda()
-
-        return np.array(batch), targets
+        return np.array(spoc_batch), targets
 
     def evaluate(self, model, data):
 
@@ -157,12 +159,12 @@ class Experiment:
         if self.decay_rate:
             scheduler = ExponentialLR(opt, self.decay_rate)
 
-        er_vocab = self.get_er_vocab(train_data_idxs)
-        er_vocab_pairs = list(er_vocab.keys())
+        sp_vocab = self.get_sp_vocab(train_data_idxs)
+        sp_vocab_pairs = list(sp_vocab.keys())
 
-        logging.debug(f'sample ER: {er_vocab_pairs[0]}')
-        logging.debug(f'{er_vocab[er_vocab_pairs[0]]}')
-        logging.debug(f'{len(er_vocab_pairs)}')
+        logging.debug(f'sample ER: {sp_vocab_pairs[0]}')
+        logging.debug(f'predicate sample: {sp_vocab[sp_vocab_pairs[0]]}')
+        logging.debug(f'subject object pair count: {len(sp_vocab_pairs)}')
         logging.debug(f'train_data_idxs: {train_data_idxs[:2]} ... {train_data_idxs[-2:]}')
 
         logging.info('Starting training...')
@@ -173,32 +175,35 @@ class Experiment:
             losses = []
             np.random.shuffle(train_data_idxs)
 
-            for j in range(0, len(er_vocab_pairs), self.batch_size):
+            for j in range(0, len(sp_vocab_pairs), self.batch_size):
                 if j % 10240 == 0:
-                    logging.debug(j)
-                data_batch, targets = self.get_batch(
-                    train_data_idxs, er_vocab, er_vocab_pairs, j)
+                    logging.info(f'Iteration: {j + 1}')
+                spo_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
                 opt.zero_grad()
-                e1_idx = torch.tensor(data_batch[:, 0])
-                r_idx = torch.tensor(data_batch[:, 1])
-                e2_idx = torch.tensor(data_batch[:, 2])
+                e1_idx = torch.tensor(spo_batch[:, 0])
+                r_idx = torch.tensor(spo_batch[:, 1])
+                e2_idx = torch.tensor(spo_batch[:, 2])
+                ec_idx = torch.tensor(spo_batch[:, 3])
+
+                logging.debug(f'e2: {e2_idx.size()}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
                     e2_idx = e2_idx.cuda()
+                    ec_idx = ec_idx.cuda()
 
-                predictions = model.forward(e1_idx, r_idx, e2_idx)
-                logging.debug(f'preditions: {predictions}')
+                predictions = model.forward(e1_idx, r_idx, e2_idx, ec_idx)
+                logging.debug(f'preditions size: {predictions}')
 
                 if self.label_smoothing:
                     targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
 
-                loss = model.loss(predictions, torch.max(targets, 1)[1])
-                accuracy = model.accuracy(predictions, targets)
+                loss = model.loss(predictions)
+                # # accuracy = model.accuracy(predictions, targets)
 
                 logging.info(f'loss: {loss}')
-                logging.info(f'accuracy: {accuracy}')
+                # logging.info(f'accuracy: {accuracy}')
 
                 loss.backward()
                 opt.step()

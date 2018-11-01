@@ -117,10 +117,19 @@ class HypERPlus(torch.nn.Module):
         self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
-        self.register_parameter('b', Parameter(torch.zeros(len(d.relations))))
-        self.fc2 = torch.nn.Linear(400, 36)
+        self.register_parameter('b', Parameter(torch.zeros(1)))
+        self.fc2 = torch.nn.Linear(400, 1)
 
-        self.loss = torch.nn.CrossEntropyLoss()
+        self.loss = self.contrastive_max_margin_loss
+
+    def contrastive_max_margin_loss(self, predictions):
+
+        scalar = torch.FloatTensor([0])
+        contrast = predictions[:, 0] + predictions[:, 1]
+        loss = torch.max(1 - contrast, scalar.expand_as(contrast))
+        cost = torch.sum(loss)
+
+        return cost
 
     def accuracy(self, predictions, targets):
 
@@ -136,7 +145,7 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, e2_idx):
+    def forward(self, e1_idx, r_idx, e2_idx, ec_idx):
 
         logging.debug('Begninning forward prop...')
         # only compute based on e2 batch
@@ -145,10 +154,8 @@ class HypERPlus(torch.nn.Module):
         # Hpyer network
         r = self.R(r_idx)
         k = self.fc1(r)
-        k = k.view(-1, self.in_channels, self.out_channels,
-                   self.filt_h, self.filt_w)
-        k = k.view(len(e1_idx) * self.in_channels *
-                   self.out_channels, 1, self.filt_h, self.filt_w)
+        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
+        k = k.view(len(e1_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
         x = self.bn0(e1)
@@ -172,6 +179,7 @@ class HypERPlus(torch.nn.Module):
         x = self.bn2(x)
         x = F.relu(x)
 
+        # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
         x2 = self.bn0(e2)
         x2 = self.inp_drop(x2)
@@ -193,22 +201,61 @@ class HypERPlus(torch.nn.Module):
         x2 = self.bn2(x2)
         x2 = F.relu(x2)
 
-        x_in = torch.cat((x, x2), 1)
-        logging.debug(f'x_in: {x_in.size()}')
+        # dynamic target
+        ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
+        x3 = self.bn0(ec)
+        x3 = self.inp_drop(x3)
+        x3 = x3.permute(1, 0, 2, 3)
+
+        # convnet
+        x3 = F.conv2d(x3, k, groups=ec.size(0))
+        x3 = x3.view(ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, ec.size(3) - self.filt_w + 1)
+        x3 = x3.permute(0, 3, 4, 1, 2)
+        x3 = torch.sum(x3, dim=3)
+        x3 = x3.permute(0, 3, 1, 2).contiguous()
+
+        # regularisation
+        x3 = self.bn1(x3)
+        x3 = self.feature_map_drop(x3)
+        x3 = x3.view(ec.size(0), -1)
+        x3 = self.fc(x3)
+        x3 = self.hidden_drop(x3)
+        x3 = self.bn2(x3)
+        x3 = F.relu(x3)
+
+        logging.debug(f'x size: {x.size()}')
+        logging.debug(f'x2 size: {x2.size()}')
+
+        x_in_e = torch.cat((x, x2), 1)
+        x_in_c = torch.cat((x, x3), 1)
+
+        logging.debug(f'x_in_e: {x_in_e}')
+        logging.debug(f'x_in_c: {x_in_c.size()}')
 
         # fully-connected classification layer
-        logits = self.fc2(x_in)
-        logging.debug(f'logits: {logits.size()}')
+        logits_e = self.fc2(x_in_e)
+        logits_c = self.fc2(x_in_c)
 
-        # we want [128, 36] in the end
-        # dot product by e2
-        # x = torch.mm(x, self.E.weight.transpose(1, 0))
+        logging.debug(f'logits_e: {logits_e.size()}')
+        logging.debug(f'logits_c: {logits_c.size()}')
+
+        # # dot product by e2 and ec
+        # logits_e = torch.mm(x, x2.transpose(1, 0))
+        # logits_c = torch.mm(x, x3.transpose(1, 0))
+
+        # logging.debug(f'logits_e size: {logits_e.size()}')
+        # logging.debug(f'logits_c size: {logits_c.size()}')
 
         # bias
-        logits = logits + self.b.expand_as(logits)
+        logits_e = logits_e + self.b.expand_as(logits_e)
+        logits_c = logits_c + self.b.expand_as(logits_c)
+
+        logits = torch.cat((logits_e, logits_c), 1)
+
+        logging.debug(f'logits size: {logits.size()}')
 
         # prediction
-        pred = torch.sigmoid(logits)
+        pred = logits
 
         return pred
 

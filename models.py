@@ -1,4 +1,5 @@
 # std
+import sys
 import logging
 
 # 3rd party
@@ -7,9 +8,15 @@ import torch
 from torch.nn import functional as F, Parameter
 from torch.nn.init import xavier_normal_, xavier_uniform_
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s:%(levelname)s:%(message)s')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+stream_handler.setFormatter(formatter)
+
+logger.addHandler(stream_handler)
 
 
 class HypER(torch.nn.Module):
@@ -146,9 +153,9 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, e2_idx, ec_idx):
+    def forward(self, e1_idx, r_idx, e2_idx, ec_idx=None, eval=False):
 
-        logging.debug('Begninning forward prop...')
+        logger.debug('Begninning forward prop...')
         # only compute based on e2 batch
         # change target from e2 to relationship
 
@@ -202,58 +209,71 @@ class HypERPlus(torch.nn.Module):
         x2 = self.bn2(x2)
         x2 = F.relu(x2)
 
-        # dynamic target
-        ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
-        x3 = self.bn0(ec)
-        x3 = self.inp_drop(x3)
-        x3 = x3.permute(1, 0, 2, 3)
+        if eval:
+            # Compute all spo combiniations in batch
+            x_val = torch.Tensor([])
+            for i in range(x.size(0)):
+                x_tmp = x[i].repeat(128, 1).view(128, -1)
+                x_tmp = torch.cat((x_tmp, x2), 1)
+                x_val = torch.cat((x_val, x_tmp), 0)
 
-        # convnet
-        x3 = F.conv2d(x3, k, groups=ec.size(0))
-        x3 = x3.view(ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, ec.size(3) - self.filt_w + 1)
-        x3 = x3.permute(0, 3, 4, 1, 2)
-        x3 = torch.sum(x3, dim=3)
-        x3 = x3.permute(0, 3, 1, 2).contiguous()
+            logits_val = self.fc2(x_val)
+            logits_val = logits_val + self.b.expand_as(logits_val)
+            logits = logits_val.view(128, -1)
 
-        # regularisation
-        x3 = self.bn1(x3)
-        x3 = self.feature_map_drop(x3)
-        x3 = x3.view(ec.size(0), -1)
-        x3 = self.fc(x3)
-        x3 = self.hidden_drop(x3)
-        x3 = self.bn2(x3)
-        x3 = F.relu(x3)
+        else:
+            # dynamic target
+            ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
+            x3 = self.bn0(ec)
+            x3 = self.inp_drop(x3)
+            x3 = x3.permute(1, 0, 2, 3)
 
-        logging.debug(f'x size: {x.size()}')
-        logging.debug(f'x2 size: {x2.size()}')
+            # convnet
+            x3 = F.conv2d(x3, k, groups=ec.size(0))
+            x3 = x3.view(ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, ec.size(3) - self.filt_w + 1)
+            x3 = x3.permute(0, 3, 4, 1, 2)
+            x3 = torch.sum(x3, dim=3)
+            x3 = x3.permute(0, 3, 1, 2).contiguous()
 
-        x_in_e = torch.cat((x, x2), 1)
-        x_in_c = torch.cat((x, x3), 1)
+            # regularisation
+            x3 = self.bn1(x3)
+            x3 = self.feature_map_drop(x3)
+            x3 = x3.view(ec.size(0), -1)
+            x3 = self.fc(x3)
+            x3 = self.hidden_drop(x3)
+            x3 = self.bn2(x3)
+            x3 = F.relu(x3)
 
-        logging.debug(f'x_in_e: {x_in_e.size()}')
-        logging.debug(f'x_in_c: {x_in_c.size()}')
+            logger.debug(f'x size: {x.size()}')
+            logger.debug(f'x2 size: {x2.size()}')
 
-        # fully-connected classification layer
-        logits_e = self.fc2(x_in_e)
-        logits_c = self.fc2(x_in_c)
+            x_in_e = torch.cat((x, x2), 1)
+            x_in_c = torch.cat((x, x3), 1)
 
-        logging.debug(f'logits_e: {logits_e.size()}')
-        logging.debug(f'logits_c: {logits_c.size()}')
+            logger.debug(f'x_in_e: {x_in_e.size()}')
+            logger.debug(f'x_in_c: {x_in_c.size()}')
 
-        # # dot product by e2 and ec
-        # logits_e = torch.mm(x, x2.transpose(1, 0))
-        # logits_c = torch.mm(x, x3.transpose(1, 0))
+            # fully-connected classification layer
+            logits_e = self.fc2(x_in_e)
+            logits_c = self.fc2(x_in_c)
 
-        # logging.debug(f'logits_e size: {logits_e.size()}')
-        # logging.debug(f'logits_c size: {logits_c.size()}')
+            logger.debug(f'logits_e: {logits_e.size()}')
+            logger.debug(f'logits_c: {logits_c.size()}')
 
-        # bias
-        logits_e = logits_e + self.b.expand_as(logits_e)
-        logits_c = logits_c + self.b.expand_as(logits_c)
+            # # dot product by e2 and ec
+            # logits_e = torch.mm(x, x2.transpose(1, 0))
+            # logits_c = torch.mm(x, x3.transpose(1, 0))
 
-        logits = torch.cat((logits_e, logits_c), 1)
+            # logger.debug(f'logits_e size: {logits_e.size()}')
+            # logger.debug(f'logits_c size: {logits_c.size()}')
 
-        logging.debug(f'logits size: {logits.size()}')
+            # bias
+            logits_e = logits_e + self.b.expand_as(logits_e)
+            logits_c = logits_c + self.b.expand_as(logits_c)
+
+            logits = torch.cat((logits_e, logits_c), 1)
+
+            logger.debug(f'logits size: {logits.size()}')
 
         # prediction
         pred = logits

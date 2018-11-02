@@ -5,16 +5,17 @@ import logging
 from collections import defaultdict
 
 # 3rd party
+import numpy as np
 from torch.optim.lr_scheduler import ExponentialLR
 
 # internal
 from models import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setLevel(logging.DEBUG)
+stream_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 stream_handler.setFormatter(formatter)
 
@@ -38,11 +39,11 @@ class Experiment:
         self.label_smoothing = label_smoothing
         self.cuda = cuda
         self.kwargs = {"input_dropout": input_dropout, "hidden_dropout": hidden_dropout,
-                       "feature_map_dropout": feature_map_dropout, "in_channels":in_channels,
+                       "feature_map_dropout": feature_map_dropout, "in_channels": in_channels,
                        "out_channels": out_channels, "filt_h": filt_h, "filt_w": filt_w}
 
     def get_data_idxs(self, data):
-        data_idxs = [(self.entity_idxs[data[i][0]], self.relation_idxs[data[i][1]], \
+        data_idxs = [(self.entity_idxs[data[i][0]], self.relation_idxs[data[i][1]],
                       self.entity_idxs[data[i][2]]) for i in range(len(data))]
         return data_idxs
 
@@ -54,15 +55,16 @@ class Experiment:
 
     def get_batch(self, er_vocab, er_vocab_pairs, idx):
 
-        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
-        targets = np.zeros((len(batch), len(self.d.entities))) # set all e2 relations for e1,r pair to true
+        batch = er_vocab_pairs[
+            idx:min(idx + self.batch_size, len(er_vocab_pairs))]
+        # set all e2 relations for e1,r pair to true
+        targets = np.zeros((len(batch), len(self.d.entities)))
         for idx, pair in enumerate(batch):
             targets[idx, er_vocab[pair]] = 1.
         targets = torch.FloatTensor(targets)
         if self.cuda:
             targets = targets.cuda()
         return np.array(batch), targets
-
 
     def evaluate(self, model, data):
 
@@ -79,9 +81,9 @@ class Experiment:
         for i in range(0, len(test_data_idxs), self.batch_size):
 
             data_batch, _ = self.get_batch(er_vocab, test_data_idxs, i)
-            e1_idx = torch.tensor(data_batch[:,0])
-            r_idx = torch.tensor(data_batch[:,1])
-            e2_idx = torch.tensor(data_batch[:,2])
+            e1_idx = torch.tensor(data_batch[:, 0])
+            r_idx = torch.tensor(data_batch[:, 1])
+            e2_idx = torch.tensor(data_batch[:, 2])
 
             if self.cuda:
                 e1_idx = e1_idx.cuda()
@@ -92,8 +94,9 @@ class Experiment:
 
             for j in range(data_batch.shape[0]):
 
+                # Set ojbect predictions not in batch to zero
                 filt = er_vocab[(data_batch[j][0], data_batch[j][1])]
-                target_value = predictions[j,e2_idx[j]].item()
+                target_value = predictions[j, e2_idx[j]].item()
                 predictions[j, filt] = 0.0
                 predictions[j, e2_idx[j]] = target_value
 
@@ -101,8 +104,8 @@ class Experiment:
             sort_idxs = sort_idxs.cpu().numpy()
 
             for j in range(data_batch.shape[0]):
-                rank = np.where(sort_idxs[j]==e2_idx[j])[0][0]
-                ranks.append(rank+1)
+                rank = np.where(sort_idxs[j] == e2_idx[j])[0][0]
+                ranks.append(rank + 1)
 
                 for hits_level in range(10):
                     if rank <= hits_level:
@@ -114,27 +117,33 @@ class Experiment:
         print('Hits @3: {0}'.format(np.mean(hits[2])))
         print('Hits @1: {0}'.format(np.mean(hits[0])))
         print('Mean rank: {0}'.format(np.mean(ranks)))
-        print('Mean reciprocal rank: {0}'.format(np.mean(1./np.array(ranks))))
-
+        print('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
 
     def train_and_eval(self):
 
         print("Training the %s model..." % self.model_name)
-        self.entity_idxs = {self.d.entities[i]:i for i in range(len(self.d.entities))}
-        self.relation_idxs = {self.d.relations[i]:i for i in range(len(self.d.relations))}
+        self.entity_idxs = {self.d.entities[
+            i]: i for i in range(len(self.d.entities))}
+        self.relation_idxs = {self.d.relations[
+            i]: i for i in range(len(self.d.relations))}
         train_data_idxs = self.get_data_idxs(self.d.train_data)
         print("Number of training data points: %d" % len(train_data_idxs))
 
         if self.model_name.lower() == "hype":
-            model = HypE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = HypE(self.d, self.ent_vec_dim,
+                         self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "hyper":
-            model = HypER(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = HypER(self.d, self.ent_vec_dim,
+                          self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "distmult":
-            model = DistMult(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = DistMult(self.d, self.ent_vec_dim,
+                             self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "conve":
-            model = ConvE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = ConvE(self.d, self.ent_vec_dim,
+                          self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "complex":
-            model = ComplEx(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = ComplEx(self.d, self.ent_vec_dim,
+                            self.rel_vec_dim, **self.kwargs)
         print([value.numel() for value in model.parameters()])
 
         if self.cuda:
@@ -153,20 +162,22 @@ class Experiment:
 
         print("Starting training...")
 
-        for it in range(1, self.num_iterations+1):
+        for it in range(1, self.num_iterations + 1):
 
             model.train()
             losses = []
             np.random.shuffle(er_vocab_pairs)
 
-            for j in range(0, len(er_vocab_pairs), self.batch_size):
+            # for j in range(0, len(er_vocab_pairs), self.batch_size):
+            for j in range(0, (self.batch_size * 1), self.batch_size):
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
+                data_batch, targets = self.get_batch(
+                    er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
-                e1_idx = torch.tensor(data_batch[:,0])
-                r_idx = torch.tensor(data_batch[:,1])
+                e1_idx = torch.tensor(data_batch[:, 0])
+                r_idx = torch.tensor(data_batch[:, 1])
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
@@ -175,7 +186,8 @@ class Experiment:
                 predictions = model.forward(e1_idx, r_idx)
 
                 if self.label_smoothing:
-                    targets = ((1.0-self.label_smoothing)*targets) + (1.0/targets.size(1))
+                    targets = ((1.0 - self.label_smoothing) *
+                               targets) + (1.0 / targets.size(1))
                 loss = model.loss(predictions, targets)
 
                 if j % (self.batch_size * 10) == 0:
@@ -239,20 +251,33 @@ class ExperimentProxE:
 
         spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(sp_vocab_pairs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
-        random.shuffle(sp_batch)
+        spo_batch = np.array(spo_batch)
 
-        # build false samples
-        pc_batch = [sp_vocab[pair] for pair in sp_batch]
-        spoc_batch = [triple + (false_entity[0],) for triple, false_entity in zip(spo_batch, pc_batch)]
+        # prepare target indecies
+        e2_idx = spo_batch[:, 2]
+        e2_idx_srt = np.sort(e2_idx)
+
+        e2_idx_map = {}
+        for i in range(e2_idx_srt.shape[0]):
+            e2_idx_map[e2_idx_srt[i]] = i
+
+        # Build new e2_idx mapping for batch
+        sp_vocab_batch = defaultdict(list)
+        for pair in sp_batch:
+            for entity in sp_vocab[pair]:
+                if entity in e2_idx:
+                    sp_vocab_batch[pair].append(e2_idx_map[entity])  # 41
 
         # build target: set all e2 relations for e1,r pair to true, binary loss at first
-        targets = np.zeros((len(sp_batch), 2))
+        targets = np.zeros((len(sp_batch), self.batch_size))
+        for idx, pair in enumerate(sp_batch):
+            targets[idx, sp_vocab_batch[pair]] = 1.
         targets = torch.FloatTensor(targets)
-        logger.debug(f'targets size: {targets.size()}')
+
         if self.cuda:
             targets = targets.cuda()
 
-        return np.array(spoc_batch), targets
+        return spo_batch, e2_idx_srt, targets
 
     def evaluate(self, model, data):
 
@@ -268,35 +293,42 @@ class ExperimentProxE:
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            if i % (self.batch_size * 10) == 0:
-                logger.info(f'VALIDATION ITERATION: {i + 1}')
-
-            data_batch, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, i)
+            data_batch, _, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
             e2_idx = torch.tensor(data_batch[:, 2])
+
+            logger.debug(f'e2_idx[0]: {e2_idx[0]}')
 
             if self.cuda:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
                 e2_idx = e2_idx.cuda()
 
-            # super hack
-            if e1_idx.size(0) < 128:
+            # TO DO: handle samples < batch_size
+            if e1_idx.size(0) < self.batch_size:
                 break
 
-            predictions = model.forward(e1_idx, r_idx, e2_idx, None, True)
+            predictions = model.forward(e1_idx, r_idx, e2_idx)
 
-            for row in range(predictions.size(0)):
-                logger.debug(f'predictions[row]: {predictions[row]}')
-                pred_srt = torch.sort(predictions[row])[0]
-                logger.debug(f'pred_srt: {pred_srt}')
-                rank = (pred_srt == predictions[row][row]).nonzero()[0]
+            # prepare target indecies
+            e2_idx_srt = np.sort(e2_idx)
+            e2_idx_map = {}
+            for i in range(e2_idx_srt.shape[0]):
+                e2_idx_map[e2_idx_srt[i]] = i # 37
 
-                if i % (self.batch_size * 10) == 0:
-                    logger.debug(f'rank: {rank}')
+            logger.debug(f'e2_idx_map[e2_idx[0]]: {e2_idx_map[e2_idx[0].item()]}')
 
+            sort_values, sort_idxs = torch.sort(predictions, dim=1, descending=True)
+            sort_idxs = sort_idxs.cpu().numpy()
+
+            logger.debug(f'sorted object indecies: {sort_idxs[0]}')
+
+            for j in range(data_batch.shape[0]):
+                rank = np.where(sort_idxs[j] == e2_idx_map[e2_idx[j].item()])[0][0]
                 ranks.append(rank + 1)
+
+                logger.debug(f'object ranks for batch: {rank}')
 
                 for hits_level in range(10):
                     if rank <= hits_level:
@@ -317,21 +349,23 @@ class ExperimentProxE:
         self.entity_idxs = {self.d.entities[i]: i for i in range(len(self.d.entities))}
         self.relation_idxs = {self.d.relations[i]: i for i in range(len(self.d.relations))}
         train_data_idxs = self.get_data_idxs(self.d.train_data)
-        logger.info('Number of training data points: %d' %
-                     len(train_data_idxs))
+        logger.info('Number of training data points: %d' % len(train_data_idxs))
 
-        if self.model_name.lower() == "hyperplus":
-            model = HypERPlus(self.d, self.ent_vec_dim,
-                              self.rel_vec_dim, **self.kwargs)
+        if self.model_name.lower() == "proxe":
+            model = ProxE(self.d, self.ent_vec_dim,
+                              self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
-            model = HypE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = HypE(self.d, self.ent_vec_dim,
+                         self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "hyper":
-            model = HypER(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = HypER(self.d, self.ent_vec_dim,
+                          self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "distmult":
             model = DistMult(self.d, self.ent_vec_dim,
                              self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "conve":
-            model = ConvE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = ConvE(self.d, self.ent_vec_dim,
+                          self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "complex":
             model = ComplEx(self.d, self.ent_vec_dim,
                             self.rel_vec_dim, **self.kwargs)
@@ -361,35 +395,37 @@ class ExperimentProxE:
             np.random.shuffle(train_data_idxs)
 
             for j in range(0, len(sp_vocab_pairs), self.batch_size):
+
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                spo_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
+                spo_batch, object_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
                 opt.zero_grad()
+
                 e1_idx = torch.tensor(spo_batch[:, 0])
                 r_idx = torch.tensor(spo_batch[:, 1])
-                e2_idx = torch.tensor(spo_batch[:, 2])
-                ec_idx = torch.tensor(spo_batch[:, 3])
+                e2_idx = torch.tensor(object_batch)
+                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
 
-                logger.debug(f'e2: {e2_idx.size()}')
+                logger.debug(f'e2 size: {e2_idx.size()}')
+                logger.debug(f'targets size: {targets.size()}')
+                logger.debug(f'crossentropy classes: {targets}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
                     e2_idx = e2_idx.cuda()
-                    ec_idx = ec_idx.cuda()
 
-                predictions = model.forward(e1_idx, r_idx, e2_idx, ec_idx)
-                logger.debug(f'preditions size: {predictions}')
+                # TO DO: handle samples < batch_size
+                if e1_idx.size(0) < self.batch_size:
+                    break
 
-                if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
+                predictions = model.forward(e1_idx, r_idx, e2_idx)
+                logger.debug(f'preditions size: {predictions.size()}')
 
-                loss = model.loss(predictions)
-                accuracy = model.accuracy(predictions)
+                loss = model.loss(predictions, targets)
 
                 if j % (self.batch_size * 10) == 0:
                     logger.info(f'loss: {loss}')
-                    logger.info(f'accuracy: {accuracy}')
 
                 loss.backward()
                 opt.step()
@@ -398,12 +434,11 @@ class ExperimentProxE:
                 scheduler.step()
             losses.append(loss.item())
 
-            print(it)
-            print(np.mean(losses))
+            logger.info(f'Mean losses: {np.mean(losses)}')
+            logger.info(f'VALIDATION ITERATION: {it}')
 
             model.eval()
             with torch.no_grad():
-                print("Validation:")
                 self.evaluate(model, self.d.valid_data)
                 # if not it % 2:
                 #     print("Test:")

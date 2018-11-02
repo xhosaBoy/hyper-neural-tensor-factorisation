@@ -9,10 +9,10 @@ from torch.nn import functional as F, Parameter
 from torch.nn.init import xavier_normal_, xavier_uniform_
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setLevel(logging.DEBUG)
+stream_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 stream_handler.setFormatter(formatter)
 
@@ -96,9 +96,9 @@ class HypER(torch.nn.Module):
         return pred
 
 
-class HypERPlus(torch.nn.Module):
+class ProxE(torch.nn.Module):
 
-    def __init__(self, d, d1, d2, **kwargs):
+    def __init__(self, d, d1, d2, batch_size, **kwargs):
 
         super().__init__()
 
@@ -124,28 +124,9 @@ class HypERPlus(torch.nn.Module):
         self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
-        self.register_parameter('b', Parameter(torch.zeros(1)))
-        self.fc2 = torch.nn.Linear(400, 1)
+        self.register_parameter('b', Parameter(torch.zeros(batch_size)))
 
-        self.loss = self.contrastive_max_margin_loss
-
-    def contrastive_max_margin_loss(self, predictions):
-
-        scalar = torch.FloatTensor([0])
-        contrast = predictions[:, 1] - predictions[:, 0]
-        loss = torch.max(1 + contrast, scalar.expand_as(contrast))
-        cost = torch.sum(loss)
-
-        return cost
-
-    def accuracy(self, predictions):
-
-        predictions_size = predictions.size(0)
-        predictions = torch.ge(predictions[:, 0], 0)
-        true_count = torch.sum(predictions).float()
-        accuracy = true_count / predictions_size
-
-        return accuracy
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def init(self):
 
@@ -153,7 +134,7 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, e2_idx, ec_idx=None, eval=False):
+    def forward(self, e1_idx, r_idx, e2_idx):
 
         logger.debug('Begninning forward prop...')
         # only compute based on e2 batch
@@ -209,74 +190,19 @@ class HypERPlus(torch.nn.Module):
         x2 = self.bn2(x2)
         x2 = F.relu(x2)
 
-        if eval:
-            # Compute all spo combiniations in batch
-            x_val = torch.Tensor([])
-            for i in range(x.size(0)):
-                x_tmp = x[i].repeat(128, 1).view(128, -1)
-                x_tmp = torch.cat((x_tmp, x2), 1)
-                x_val = torch.cat((x_val, x_tmp), 0)
+        logger.debug(f'x size: {x.size()}')
+        logger.debug(f'x2 size: {x2.size()}')
 
-            logits_val = self.fc2(x_val)
-            logits_val = logits_val + self.b.expand_as(logits_val)
-            logits = logits_val.view(128, -1)
+        # dot product by e2 and ec
+        logits = torch.mm(x, x2.transpose(1, 0))
+        logger.debug(f'logits size: {logits.size()}')
 
-        else:
-            # dynamic target
-            ec = self.E(ec_idx).view(-1, 1, 1, self.E.weight.size(1))
-            x3 = self.bn0(ec)
-            x3 = self.inp_drop(x3)
-            x3 = x3.permute(1, 0, 2, 3)
-
-            # convnet
-            x3 = F.conv2d(x3, k, groups=ec.size(0))
-            x3 = x3.view(ec.size(0), 1, self.out_channels, 1 - self.filt_h + 1, ec.size(3) - self.filt_w + 1)
-            x3 = x3.permute(0, 3, 4, 1, 2)
-            x3 = torch.sum(x3, dim=3)
-            x3 = x3.permute(0, 3, 1, 2).contiguous()
-
-            # regularisation
-            x3 = self.bn1(x3)
-            x3 = self.feature_map_drop(x3)
-            x3 = x3.view(ec.size(0), -1)
-            x3 = self.fc(x3)
-            x3 = self.hidden_drop(x3)
-            x3 = self.bn2(x3)
-            x3 = F.relu(x3)
-
-            logger.debug(f'x size: {x.size()}')
-            logger.debug(f'x2 size: {x2.size()}')
-
-            x_in_e = torch.cat((x, x2), 1)
-            x_in_c = torch.cat((x, x3), 1)
-
-            logger.debug(f'x_in_e: {x_in_e.size()}')
-            logger.debug(f'x_in_c: {x_in_c.size()}')
-
-            # fully-connected classification layer
-            logits_e = self.fc2(x_in_e)
-            logits_c = self.fc2(x_in_c)
-
-            logger.debug(f'logits_e: {logits_e.size()}')
-            logger.debug(f'logits_c: {logits_c.size()}')
-
-            # # dot product by e2 and ec
-            # logits_e = torch.mm(x, x2.transpose(1, 0))
-            # logits_c = torch.mm(x, x3.transpose(1, 0))
-
-            # logger.debug(f'logits_e size: {logits_e.size()}')
-            # logger.debug(f'logits_c size: {logits_c.size()}')
-
-            # bias
-            logits_e = logits_e + self.b.expand_as(logits_e)
-            logits_c = logits_c + self.b.expand_as(logits_c)
-
-            logits = torch.cat((logits_e, logits_c), 1)
-
-            logger.debug(f'logits size: {logits.size()}')
+        # bias
+        logits = logits + self.b.expand_as(logits)
+        logger.debug(f'logits: {logits}')
 
         # prediction
-        pred = logits
+        pred = torch.sigmoid(x)
 
         return pred
 

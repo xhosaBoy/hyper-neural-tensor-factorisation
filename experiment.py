@@ -212,10 +212,10 @@ class Experiment:
                     self.evaluate(model, self.d.test_data)
 
 
-class ExperimentProxE:
+class ExperimentHypERPlus:
 
     def __init__(self, model_name, d, learning_rate=0.001, ent_vec_dim=200, rel_vec_dim=200,
-                 num_iterations=100, batch_size=128, decay_rate=0., cuda=False,
+                 num_epoch=100, batch_size=128, decay_rate=0., cuda=False,
                  input_dropout=0., hidden_dropout=0., feature_map_dropout=0.,
                  in_channels=1, out_channels=32, filt_h=3, filt_w=3, label_smoothing=0.):
         self.model_name = model_name
@@ -223,7 +223,7 @@ class ExperimentProxE:
         self.learning_rate = learning_rate
         self.ent_vec_dim = ent_vec_dim
         self.rel_vec_dim = rel_vec_dim
-        self.num_iterations = num_iterations
+        self.num_epoch = num_epoch
         self.batch_size = batch_size
         self.decay_rate = decay_rate
         self.label_smoothing = label_smoothing
@@ -351,8 +351,8 @@ class ExperimentProxE:
         train_data_idxs = self.get_data_idxs(self.d.train_data)
         logger.info('Number of training data points: %d' % len(train_data_idxs))
 
-        if self.model_name.lower() == "proxe":
-            model = ProxE(self.d, self.ent_vec_dim,
+        if self.model_name.lower() == "hyperplus":
+            model = HypERPlus(self.d, self.ent_vec_dim,
                               self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
             model = HypE(self.d, self.ent_vec_dim,
@@ -369,6 +369,7 @@ class ExperimentProxE:
         elif self.model_name.lower() == "complex":
             model = ComplEx(self.d, self.ent_vec_dim,
                             self.rel_vec_dim, **self.kwargs)
+
         logger.info(f'Model parameters: {[value.numel() for value in model.parameters()]}')
 
         if self.cuda:
@@ -388,7 +389,9 @@ class ExperimentProxE:
 
         logger.info('Starting training...')
 
-        for it in range(1, self.num_iterations + 1):
+        for epoch in range(1, self.num_epoch + 1):
+
+            logger.info(f'EPOCH: {epoch}')
 
             model.train()
             losses = []
@@ -435,11 +438,11 @@ class ExperimentProxE:
             losses.append(loss.item())
 
             logger.info(f'Mean losses: {np.mean(losses)}')
-            logger.info(f'VALIDATION ITERATION: {it}')
+            logger.info(f'VALIDATION: {epoch}')
 
             model.eval()
             with torch.no_grad():
                 self.evaluate(model, self.d.valid_data)
-                # if not it % 2:
+                # if not epoch % 2:
                 #     print("Test:")
                 #     self.evaluate(model, self.d.test_data)

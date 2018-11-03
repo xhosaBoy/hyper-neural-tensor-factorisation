@@ -96,7 +96,7 @@ class HypER(torch.nn.Module):
         return pred
 
 
-class ProxE(torch.nn.Module):
+class HypERPlus(torch.nn.Module):
 
     def __init__(self, d, d1, d2, batch_size, **kwargs):
 

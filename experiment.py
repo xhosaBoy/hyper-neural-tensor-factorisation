@@ -407,11 +407,10 @@ class ExperimentHypERPlus:
                 e1_idx = torch.tensor(spo_batch[:, 0])
                 r_idx = torch.tensor(spo_batch[:, 1])
                 e2_idx = torch.tensor(object_batch)
-                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
-                logger.debug(f'crossentropy classes: {targets}')
+                logger.debug(f'target classes: {targets}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()

@@ -126,7 +126,7 @@ class HypERPlus(torch.nn.Module):
         self.fc1 = torch.nn.Linear(d2, fc1_length)
         self.register_parameter('b', Parameter(torch.zeros(batch_size)))
 
-        self.loss = torch.nn.CrossEntropyLoss()
+        self.loss = torch.nn.BCELoss()
 
     def init(self):
 
@@ -200,9 +200,10 @@ class HypERPlus(torch.nn.Module):
         # bias
         logits = logits + self.b.expand_as(logits)
         logger.debug(f'logits: {logits}')
+        logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = torch.sigmoid(x)
+        pred = torch.sigmoid(logits)
 
         return pred
 

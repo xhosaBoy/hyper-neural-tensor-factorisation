@@ -12,7 +12,7 @@ from torch.nn.init import xavier_normal_, xavier_uniform_
 
 # internal
 from load_data import Data
-from experiment import Experiment, ExperimentHypERPlus
+from experiment import Experiment, ExperimentProxE
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,7 +28,7 @@ logger.addHandler(stream_handler)
 if __name__ == '__main__':
 
     parser=argparse.ArgumentParser()
-    parser.add_argument('--algorithm', type=str, default="HypERPlus", nargs="?",
+    parser.add_argument('--algorithm', type=str, default="ProxE", nargs="?",
                         help='Which algorithm to use: ProxE, HypER, HypER, ConvE, DistMult, or ComplEx')
     parser.add_argument('--dataset', type=str, default="WN18", nargs="?",
                         help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')

@@ -361,8 +361,8 @@ class ExperimentProxE:
         train_data_idxs = self.get_data_idxs(self.d.train_data)
         logger.info('Number of training data points: %d' % len(train_data_idxs))
 
-        if self.model_name.lower() == "hyperplus":
-            model = HypERPlus(self.d, self.ent_vec_dim,
+        if self.model_name.lower() == "proxe":
+            model = ProxE(self.d, self.ent_vec_dim,
                               self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
             model = HypE(self.d, self.ent_vec_dim,

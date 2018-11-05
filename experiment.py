@@ -173,8 +173,7 @@ class Experiment:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                data_batch, targets = self.get_batch(
-                    er_vocab, er_vocab_pairs, j)
+                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
                 e1_idx = torch.tensor(data_batch[:, 0])
                 r_idx = torch.tensor(data_batch[:, 1])
@@ -186,8 +185,7 @@ class Experiment:
                 predictions = model.forward(e1_idx, r_idx)
 
                 if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) *
-                               targets) + (1.0 / targets.size(1))
+                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
                 loss = model.loss(predictions, targets)
 
                 if j % (self.batch_size * 10) == 0:
@@ -212,7 +210,7 @@ class Experiment:
                     self.evaluate(model, self.d.test_data)
 
 
-class ExperimentHypERPlus:
+class ExperimentProxE:
 
     def __init__(self, model_name, d, learning_rate=0.001, ent_vec_dim=200, rel_vec_dim=200,
                  num_epoch=100, batch_size=128, decay_rate=0., cuda=False,
@@ -277,7 +275,17 @@ class ExperimentHypERPlus:
         if self.cuda:
             targets = targets.cuda()
 
-        return spo_batch, e2_idx_srt, targets
+        r2_idx = spo_batch[:, 1]
+        e2_idx_srt_index = torch.sort(torch.Tensor(e2_idx))[1]
+        r2_idx_srt = []
+        for i in range(e2_idx_srt.shape[0]):
+            r2_idx_srt.append(r2_idx[e2_idx_srt_index[i]])
+
+        logger.debug(f'po: {[tuple((p, o)) for p, o in zip(r2_idx, e2_idx)][:5]}')
+        for i in range(5):
+            logger.debug(f'po_srt: {r2_idx_srt[e2_idx_map[e2_idx[i]]], e2_idx_srt[e2_idx_map[e2_idx[i]]]}')
+
+        return spo_batch, e2_idx_srt, np.array(r2_idx_srt), targets
 
     def evaluate(self, model, data):
 
@@ -293,10 +301,11 @@ class ExperimentHypERPlus:
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, _, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, i)
+            data_batch, _, _, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
             e2_idx = torch.tensor(data_batch[:, 2])
+            r2_idx = torch.tensor(data_batch[:, 1])
 
             logger.debug(f'e2_idx[0]: {e2_idx[0]}')
 
@@ -304,12 +313,13 @@ class ExperimentHypERPlus:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
                 e2_idx = e2_idx.cuda()
+                r2_idx = e2_idx.cuda()
 
             # TO DO: handle samples < batch_size
             if e1_idx.size(0) < self.batch_size:
                 break
 
-            predictions = model.forward(e1_idx, r_idx, e2_idx)
+            predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
 
             # prepare target indecies
             e2_idx_srt = np.sort(e2_idx)
@@ -401,33 +411,40 @@ class ExperimentHypERPlus:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                spo_batch, object_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
+                spo_batch, object_batch, relation_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
                 opt.zero_grad()
 
                 e1_idx = torch.tensor(spo_batch[:, 0])
                 r_idx = torch.tensor(spo_batch[:, 1])
                 e2_idx = torch.tensor(object_batch)
+                r2_idx = torch.tensor(relation_batch)
+                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
+
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
-                logger.debug(f'target classes: {targets}')
+                logger.debug(f'target classes: {torch.max(targets[0], 0)[1]}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
                     e2_idx = e2_idx.cuda()
+                    r2_idx = e2_idx.cuda()
 
                 # TO DO: handle samples < batch_size
                 if e1_idx.size(0) < self.batch_size:
                     break
 
-                predictions = model.forward(e1_idx, r_idx, e2_idx)
+                predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
                 logger.debug(f'preditions size: {predictions.size()}')
+                logger.debug(f'preditions: {predictions[targets]}')
 
                 loss = model.loss(predictions, targets)
+                accuracy = model.accuracy(predictions, targets).item()
 
                 if j % (self.batch_size * 10) == 0:
                     logger.info(f'loss: {loss}')
+                    logger.info(f'accuracy: {accuracy}')
 
                 loss.backward()
                 opt.step()

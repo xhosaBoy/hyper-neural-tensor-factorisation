@@ -96,7 +96,7 @@ class HypER(torch.nn.Module):
         return pred
 
 
-class HypERPlus(torch.nn.Module):
+class ProxE(torch.nn.Module):
 
     def __init__(self, d, d1, d2, batch_size, **kwargs):
 
@@ -124,9 +124,17 @@ class HypERPlus(torch.nn.Module):
         self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
+        self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(batch_size)))
 
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.CrossEntropyLoss()
+
+    def accuracy(self, predictions, targets):
+
+        accuracy = torch.eq(torch.max(predictions, 0)[1], torch.max(targets, 0)[1])
+        accuracy = torch.sum(accuracy)
+
+        return accuracy
 
     def init(self):
 
@@ -134,7 +142,7 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, e2_idx):
+    def forward(self, e1_idx, r_idx, e2_idx, r2_idx):
 
         logger.debug('Begninning forward prop...')
         # only compute based on e2 batch
@@ -153,8 +161,7 @@ class HypERPlus(torch.nn.Module):
 
         # convnet
         x = F.conv2d(x, k, groups=e1.size(0))
-        x = x.view(e1.size(0), 1, self.out_channels, 1 -
-                   self.filt_h + 1, e1.size(3) - self.filt_w + 1)
+        x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) - self.filt_w + 1)
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
@@ -166,7 +173,13 @@ class HypERPlus(torch.nn.Module):
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        x = F.relu(x)
+        x = torch.relu(x)
+
+        # Hpyer network
+        r = self.R(r2_idx)
+        k = self.fc1(r)
+        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
+        k = k.view(len(e2_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
@@ -188,14 +201,14 @@ class HypERPlus(torch.nn.Module):
         x2 = self.fc(x2)
         x2 = self.hidden_drop(x2)
         x2 = self.bn2(x2)
-        x2 = F.relu(x2)
+        x2 = torch.relu(x2)
 
         logger.debug(f'x size: {x.size()}')
         logger.debug(f'x2 size: {x2.size()}')
 
-        # dot product by e2 and ec
-        logits = torch.mm(x, x2.transpose(1, 0))
-        logger.debug(f'logits size: {logits.size()}')
+        # fully-connected layer
+        so = torch.cat((x, x2), 1)
+        logits = self.fc2(so)
 
         # bias
         logits = logits + self.b.expand_as(logits)
@@ -203,7 +216,7 @@ class HypERPlus(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = torch.sigmoid(logits)
+        pred = logits
 
         return pred
 

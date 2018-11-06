@@ -216,7 +216,7 @@ class ProxE(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = logits
+        pred = torch.sigmoid(logits)
 
         return pred
 

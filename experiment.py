@@ -418,8 +418,6 @@ class ExperimentProxE:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 e2_idx = torch.tensor(object_batch)
                 r2_idx = torch.tensor(relation_batch)
-                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
-
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
@@ -437,7 +435,6 @@ class ExperimentProxE:
 
                 predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
                 logger.debug(f'preditions size: {predictions.size()}')
-                logger.debug(f'preditions: {predictions[targets]}')
 
                 loss = model.loss(predictions, targets)
                 accuracy = model.accuracy(predictions, targets).item()

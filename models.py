@@ -127,7 +127,7 @@ class ProxE(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(batch_size)))
 
-        self.loss = torch.nn.CrossEntropyLoss()
+        self.loss = torch.nn.BCELoss()
 
     def accuracy(self, predictions, targets):
 

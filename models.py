@@ -125,7 +125,7 @@ class ProxE(torch.nn.Module):
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
-        self.register_parameter('b', Parameter(torch.zeros(batch_size)))
+        self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
         self.loss = torch.nn.BCELoss()
 
@@ -142,7 +142,7 @@ class ProxE(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, e2_idx, r2_idx):
+    def forward(self, e1_idx, r_idx, r2_idx, e2_idx):
 
         logger.debug('Begninning forward prop...')
         # only compute based on e2 batch
@@ -206,9 +206,8 @@ class ProxE(torch.nn.Module):
         logger.debug(f'x size: {x.size()}')
         logger.debug(f'x2 size: {x2.size()}')
 
-        # fully-connected layer
-        so = torch.cat((x, x2), 1)
-        logits = self.fc2(so)
+        # dot product by e2
+        logits = torch.mm(x, x2.transpose(1, 0))
 
         # bias
         logits = logits + self.b.expand_as(logits)

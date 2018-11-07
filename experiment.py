@@ -173,7 +173,8 @@ class Experiment:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
+                data_batch, targets = self.get_batch(
+                    er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
                 e1_idx = torch.tensor(data_batch[:, 0])
                 r_idx = torch.tensor(data_batch[:, 1])
@@ -185,7 +186,8 @@ class Experiment:
                 predictions = model.forward(e1_idx, r_idx)
 
                 if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
+                    targets = ((1.0 - self.label_smoothing) *
+                               targets) + (1.0 / targets.size(1))
                 loss = model.loss(predictions, targets)
 
                 if j % (self.batch_size * 10) == 0:
@@ -245,45 +247,39 @@ class ExperimentProxE:
 
         return sp_vocab
 
-    def get_batch(self, train_data_idxs, sp_vocab, sp_vocab_pairs, idx):
+    def get_po_vocab(self, data):
+
+        po_vocab = defaultdict(list)
+        for triple in data:
+            po_vocab[(triple[1], triple[2])].append(triple[0])
+
+        return po_vocab
+
+    def get_batch(self, train_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, idx):
 
         spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(sp_vocab_pairs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
         spo_batch = np.array(spo_batch)
 
-        # prepare target indecies
-        e2_idx = spo_batch[:, 2]
-        e2_idx_srt = np.sort(e2_idx)
+        # sample random value an entity is part of
+        e2 = defaultdict(list)
+        for pair in po_vocab_pairs:
+            e2[pair[1]].append(pair[0])
 
-        e2_idx_map = {}
-        for i in range(e2_idx_srt.shape[0]):
-            e2_idx_map[e2_idx_srt[i]] = i
+        po_batch = [(random.choice(predicates), entity) for entity, predicates in e2.items()]
 
-        # Build new e2_idx mapping for batch
-        sp_vocab_batch = defaultdict(list)
-        for pair in sp_batch:
-            for entity in sp_vocab[pair]:
-                if entity in e2_idx:
-                    sp_vocab_batch[pair].append(e2_idx_map[entity])  # 41
-
-        # build target: set all e2 relations for e1,r pair to true, binary loss at first
-        targets = np.zeros((len(sp_batch), self.batch_size))
+        # build target: set all e2 relations for e1,r pair to true, binary loss
+        # at first
+        targets = np.zeros((len(sp_batch), len(po_batch)))
 
         for idx, pair in enumerate(sp_batch):
-            targets[idx, sp_vocab_batch[pair]] = 1.
+            targets[idx, sp_vocab[pair]] = 1.
         targets = torch.FloatTensor(targets)
 
         if self.cuda:
             targets = targets.cuda()
 
-        r2_idx = spo_batch[:, 1]
-        e2_idx_srt_index = torch.sort(torch.Tensor(e2_idx))[1]
-        r2_idx_srt = [r2_idx[e2_idx_srt_index[i]] for i in range(e2_idx_srt.shape[0])]
-
-        logger.debug(f'po: {[tuple((p, o)) for p, o in zip(r2_idx, e2_idx)][:5]}')
-        logger.debug(f'po_srt: {[(r2_idx_srt[e2_idx_map[e2_idx[i]]], e2_idx_srt[e2_idx_map[e2_idx[i]]]) for i in range(5)]}')
-
-        return spo_batch, e2_idx_srt, np.array(r2_idx_srt), targets
+        return np.array(spo_batch), np.array(po_batch), targets
 
     def evaluate(self, model, data):
 
@@ -299,33 +295,32 @@ class ExperimentProxE:
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, _, _, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, i)
+            data_batch, po_batch, _ = self.get_batch(
+                test_data_idxs, sp_vocab, sp_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
-            e2_idx = torch.tensor(data_batch[:, 2])
-            r2_idx = torch.tensor(data_batch[:, 1])
+            e2b_idx = torch.tensor(data_batch[:, 2])
+            r2_idx = torch.tensor(po_batch[:, 0])
+            e2_idx = torch.tensor(po_batch[:, 1])
 
             logger.debug(f'e2_idx[0]: {e2_idx[0]}')
 
             if self.cuda:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
-                e2_idx = e2_idx.cuda()
+                e2b_idx = e2b_idx.cuda()
                 r2_idx = r2_idx.cuda()
+                e2_idx = e2_idx.cuda()
 
-            # TO DO: handle samples < batch_size
-            if e1_idx.size(0) < self.batch_size:
-                break
+            predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
 
-            predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
+            for j in range(data_batch.shape[0]):
 
-            # prepare target indecies
-            e2_idx_srt = np.sort(e2_idx)
-            e2_idx_map = {}
-            for i in range(e2_idx_srt.shape[0]):
-                e2_idx_map[e2_idx_srt[i]] = i # 37
-
-            logger.debug(f'e2_idx_map[e2_idx[0]]: {e2_idx_map[e2_idx[0].item()]}')
+                # Set ojbect predictions not in batch to zero
+                filt = er_vocab[(data_batch[j][0], data_batch[j][1])]
+                target_value = predictions[j, e2b_idx[j]].item()
+                predictions[j, filt] = 0.0
+                predictions[j, e2b_idx[j]] = target_value
 
             sort_values, sort_idxs = torch.sort(predictions, dim=1, descending=True)
             sort_idxs = sort_idxs.cpu().numpy()
@@ -333,7 +328,7 @@ class ExperimentProxE:
             logger.debug(f'sorted object indecies: {sort_idxs[0]}')
 
             for j in range(data_batch.shape[0]):
-                rank = np.where(sort_idxs[j] == e2_idx_map[e2_idx[j].item()])[0][0]
+                rank = np.where(sort_idxs[j] == e2b_idx[j])[0][0]
                 ranks.append(rank + 1)
 
                 logger.debug(f'object ranks for batch: {rank}')
@@ -354,14 +349,17 @@ class ExperimentProxE:
 
         # map entities, relations, and training data to ids
         logger.info('Training the %s model...' % self.model_name)
-        self.entity_idxs = {self.d.entities[i]: i for i in range(len(self.d.entities))}
-        self.relation_idxs = {self.d.relations[i]: i for i in range(len(self.d.relations))}
+        self.entity_idxs = {self.d.entities[
+            i]: i for i in range(len(self.d.entities))}
+        self.relation_idxs = {self.d.relations[
+            i]: i for i in range(len(self.d.relations))}
         train_data_idxs = self.get_data_idxs(self.d.train_data)
-        logger.info('Number of training data points: %d' % len(train_data_idxs))
+        logger.info('Number of training data points: %d' %
+                    len(train_data_idxs))
 
         if self.model_name.lower() == "proxe":
             model = ProxE(self.d, self.ent_vec_dim,
-                              self.rel_vec_dim, self.batch_size, **self.kwargs)
+                          self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
             model = HypE(self.d, self.ent_vec_dim,
                          self.rel_vec_dim, **self.kwargs)
@@ -400,6 +398,9 @@ class ExperimentProxE:
 
         logger.info('Starting training...')
 
+        po_vocab = self.get_po_vocab(train_data_idxs)
+        po_vocab_pairs = list(po_vocab.keys())
+
         for epoch in range(1, self.num_epoch + 1):
 
             logger.info(f'EPOCH: {epoch}')
@@ -412,13 +413,14 @@ class ExperimentProxE:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                spo_batch, object_batch, relation_batch, targets = self.get_batch(train_data_idxs, sp_vocab, sp_vocab_pairs, j)
+                spo_batch, po_batch, targets = self.get_batch(
+                    train_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, j)
                 opt.zero_grad()
 
                 e1_idx = torch.tensor(spo_batch[:, 0])
                 r_idx = torch.tensor(spo_batch[:, 1])
-                e2_idx = torch.tensor(object_batch)
-                r2_idx = torch.tensor(relation_batch)
+                r2_idx = torch.tensor(po_batch[:, 0])
+                e2_idx = torch.tensor(po_batch[:, 1])
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
@@ -427,18 +429,15 @@ class ExperimentProxE:
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
-                    e2_idx = e2_idx.cuda()
                     r2_idx = r2_idx.cuda()
+                    e2_idx = e2_idx.cuda()
 
-                # TO DO: handle samples < batch_size
-                if e1_idx.size(0) < self.batch_size:
-                    break
-
-                predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
+                predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
                 logger.debug(f'preditions size: {predictions.size()}')
 
                 if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
+                    targets = ((1.0 - self.label_smoothing) *
+                               targets) + (1.0 / targets.size(1))
 
                 loss = model.loss(predictions, targets)
                 accuracy = model.accuracy(predictions, targets).item()

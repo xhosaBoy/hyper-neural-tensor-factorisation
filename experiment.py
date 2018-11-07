@@ -48,22 +48,27 @@ class Experiment:
         return data_idxs
 
     def get_er_vocab(self, data):
+
         er_vocab = defaultdict(list)
         for triple in data:
             er_vocab[(triple[0], triple[1])].append(triple[2])
+
         return er_vocab
 
     def get_batch(self, er_vocab, er_vocab_pairs, idx):
 
-        batch = er_vocab_pairs[
-            idx:min(idx + self.batch_size, len(er_vocab_pairs))]
+        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
+
         # set all e2 relations for e1,r pair to true
         targets = np.zeros((len(batch), len(self.d.entities)))
+
         for idx, pair in enumerate(batch):
             targets[idx, er_vocab[pair]] = 1.
+
         targets = torch.FloatTensor(targets)
         if self.cuda:
             targets = targets.cuda()
+
         return np.array(batch), targets
 
     def evaluate(self, model, data):
@@ -257,9 +262,8 @@ class ExperimentProxE:
 
     def get_batch(self, train_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, idx):
 
-        spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(sp_vocab_pairs))]
+        spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
-        spo_batch = np.array(spo_batch)
 
         # sample random value an entity is part of
         e2 = defaultdict(list)
@@ -281,7 +285,7 @@ class ExperimentProxE:
 
         return np.array(spo_batch), np.array(po_batch), targets
 
-    def evaluate(self, model, data):
+    def evaluate(self, model, data, po_vocab_pairs):
 
         hits = []
         ranks = []
@@ -289,14 +293,14 @@ class ExperimentProxE:
             hits.append([])
 
         test_data_idxs = self.get_data_idxs(data)
-        sp_vocab = self.get_sp_vocab(test_data_idxs)
+        sp_vocab = self.get_sp_vocab(self.get_data_idxs(self.d.data))
         sp_vocab_pairs = list(sp_vocab.keys())
+
         logger.info("Number of data points: %d" % len(test_data_idxs))
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, po_batch, _ = self.get_batch(
-                test_data_idxs, sp_vocab, sp_vocab_pairs, i)
+            data_batch, po_batch, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
             e2b_idx = torch.tensor(data_batch[:, 2])
@@ -317,7 +321,7 @@ class ExperimentProxE:
             for j in range(data_batch.shape[0]):
 
                 # Set ojbect predictions not in batch to zero
-                filt = er_vocab[(data_batch[j][0], data_batch[j][1])]
+                filt = sp_vocab[(data_batch[j][0], data_batch[j][1])]
                 target_value = predictions[j, e2b_idx[j]].item()
                 predictions[j, filt] = 0.0
                 predictions[j, e2b_idx[j]] = target_value
@@ -458,7 +462,7 @@ class ExperimentProxE:
 
             model.eval()
             with torch.no_grad():
-                self.evaluate(model, self.d.valid_data)
+                self.evaluate(model, self.d.valid_data, po_vocab_pairs)
                 # if not epoch % 2:
                 #     print("Test:")
                 #     self.evaluate(model, self.d.test_data)

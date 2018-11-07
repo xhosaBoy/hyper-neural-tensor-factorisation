@@ -260,7 +260,7 @@ class ExperimentProxE:
 
         return po_vocab
 
-    def get_batch(self, train_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, idx):
+    def get_batch(self, train_data_idxs, sp_vocab, po_vocab_pairs, idx):
 
         spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
@@ -271,6 +271,7 @@ class ExperimentProxE:
             e2[pair[1]].append(pair[0])
 
         po_batch = [(random.choice(predicates), entity) for entity, predicates in e2.items()]
+        po_batch = sorted(po_batch, key=lambda x: x[1])
 
         # build target: set all e2 relations for e1,r pair to true, binary loss
         # at first
@@ -294,13 +295,12 @@ class ExperimentProxE:
 
         test_data_idxs = self.get_data_idxs(data)
         sp_vocab = self.get_sp_vocab(self.get_data_idxs(self.d.data))
-        sp_vocab_pairs = list(sp_vocab.keys())
 
         logger.info("Number of data points: %d" % len(test_data_idxs))
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, po_batch, _ = self.get_batch(test_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, i)
+            data_batch, po_batch, _ = self.get_batch(test_data_idxs, sp_vocab, po_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
             e2b_idx = torch.tensor(data_batch[:, 2])
@@ -417,8 +417,7 @@ class ExperimentProxE:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                spo_batch, po_batch, targets = self.get_batch(
-                    train_data_idxs, sp_vocab, sp_vocab_pairs, po_vocab_pairs, j)
+                spo_batch, po_batch, targets = self.get_batch(train_data_idxs, sp_vocab, po_vocab_pairs, j)
                 opt.zero_grad()
 
                 e1_idx = torch.tensor(spo_batch[:, 0])

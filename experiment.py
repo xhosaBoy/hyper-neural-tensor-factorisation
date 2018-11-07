@@ -268,6 +268,7 @@ class ExperimentProxE:
 
         # build target: set all e2 relations for e1,r pair to true, binary loss at first
         targets = np.zeros((len(sp_batch), self.batch_size))
+
         for idx, pair in enumerate(sp_batch):
             targets[idx, sp_vocab_batch[pair]] = 1.
         targets = torch.FloatTensor(targets)
@@ -277,13 +278,10 @@ class ExperimentProxE:
 
         r2_idx = spo_batch[:, 1]
         e2_idx_srt_index = torch.sort(torch.Tensor(e2_idx))[1]
-        r2_idx_srt = []
-        for i in range(e2_idx_srt.shape[0]):
-            r2_idx_srt.append(r2_idx[e2_idx_srt_index[i]])
+        r2_idx_srt = [r2_idx[e2_idx_srt_index[i]] for i in range(e2_idx_srt.shape[0])]
 
         logger.debug(f'po: {[tuple((p, o)) for p, o in zip(r2_idx, e2_idx)][:5]}')
-        for i in range(5):
-            logger.debug(f'po_srt: {r2_idx_srt[e2_idx_map[e2_idx[i]]], e2_idx_srt[e2_idx_map[e2_idx[i]]]}')
+        logger.debug(f'po_srt: {[(r2_idx_srt[e2_idx_map[e2_idx[i]]], e2_idx_srt[e2_idx_map[e2_idx[i]]]) for i in range(5)]}')
 
         return spo_batch, e2_idx_srt, np.array(r2_idx_srt), targets
 
@@ -313,7 +311,7 @@ class ExperimentProxE:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
                 e2_idx = e2_idx.cuda()
-                r2_idx = e2_idx.cuda()
+                r2_idx = r2_idx.cuda()
 
             # TO DO: handle samples < batch_size
             if e1_idx.size(0) < self.batch_size:
@@ -384,8 +382,11 @@ class ExperimentProxE:
 
         if self.cuda:
             model.cuda()
+
         model.init()
+
         opt = torch.optim.Adam(model.parameters(), lr=self.learning_rate)
+
         if self.decay_rate:
             scheduler = ExponentialLR(opt, self.decay_rate)
 
@@ -427,7 +428,7 @@ class ExperimentProxE:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
                     e2_idx = e2_idx.cuda()
-                    r2_idx = e2_idx.cuda()
+                    r2_idx = r2_idx.cuda()
 
                 # TO DO: handle samples < batch_size
                 if e1_idx.size(0) < self.batch_size:
@@ -435,6 +436,9 @@ class ExperimentProxE:
 
                 predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
                 logger.debug(f'preditions size: {predictions.size()}')
+
+                if self.label_smoothing:
+                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
 
                 loss = model.loss(predictions, targets)
                 accuracy = model.accuracy(predictions, targets).item()

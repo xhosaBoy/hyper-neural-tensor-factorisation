@@ -16,10 +16,15 @@ logger.setLevel(logging.DEBUG)
 
 stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setLevel(logging.INFO)
+file_handler = logging.FileHandler('experiment.log')
+file_handler.setLevel(logging.INFO)
+
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 stream_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
 
 logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
 
 
 class Experiment:
@@ -421,7 +426,7 @@ class ExperimentProxE:
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
-                logger.debug(f'first target class: {torch.max(targets[0], 1)[1]}')
+                logger.debug(f'first target class: {torch.max(targets[0], 0)[1]}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()

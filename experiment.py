@@ -306,8 +306,6 @@ class ExperimentProxE:
             r2_idx = torch.tensor(po_batch[:, 0])
             e2_idx = torch.tensor(po_batch[:, 1])
 
-            logger.debug(f'e2_idx[0]: {e2_idx[0]}')
-
             if self.cuda:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
@@ -318,8 +316,8 @@ class ExperimentProxE:
             predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
 
             indexes = [(index + 1) for index in e2b_idx[range(5)]]
-            logger.debug(f'predictions {predictions[[range(5)], indexes]}')
-            logger.debug(f'predictions indexed: {predictions[[range(5)], e2b_idx[range(5)]]}')
+            logger.info(f'random predictions {predictions[[range(5)], indexes]}')
+            logger.info(f'target predictions: {predictions[[range(5)], e2b_idx[range(5)]]}')
 
             for j in range(data_batch.shape[0]):
 
@@ -332,13 +330,14 @@ class ExperimentProxE:
             sort_values, sort_idxs = torch.sort(predictions, dim=1, descending=True)
             sort_idxs = sort_idxs.cpu().numpy()
 
-            logger.debug(f'sorted object indecies: {sort_idxs[0]}')
+            logger.debug(f'first target index: {e2b_idx[0]}')
+            logger.debug(f'first predictions rankings: {sort_idxs[0][:10]}')
 
             for j in range(data_batch.shape[0]):
                 rank = np.where(sort_idxs[j] == e2b_idx[j])[0][0]
                 ranks.append(rank + 1)
 
-                logger.debug(f'object ranks for batch: {rank}')
+                logger.debug(f'rank for target {j}: {rank}')
 
                 for hits_level in range(10):
                     if rank <= hits_level:
@@ -421,7 +420,7 @@ class ExperimentProxE:
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
-                logger.debug(f'target classes: {torch.max(targets[0], 0)[1]}')
+                logger.debug(f'first target class: {torch.max(targets[0], 0)[1]}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()

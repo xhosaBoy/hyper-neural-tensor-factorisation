@@ -417,10 +417,11 @@ class ExperimentProxE:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 r2_idx = torch.tensor(po_batch[:, 0])
                 e2_idx = torch.tensor(po_batch[:, 1])
+                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
-                logger.debug(f'first target class: {torch.max(targets[0], 0)[1]}')
+                logger.debug(f'first target class: {torch.max(targets[0], 1)[1]}')
 
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
@@ -432,8 +433,7 @@ class ExperimentProxE:
                 logger.debug(f'preditions size: {predictions.size()}')
 
                 if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) *
-                               targets) + (1.0 / targets.size(1))
+                    targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
 
                 loss = model.loss(predictions, targets)
                 accuracy = model.accuracy(predictions, targets).item()

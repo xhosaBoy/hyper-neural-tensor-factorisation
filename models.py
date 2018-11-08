@@ -127,7 +127,7 @@ class ProxE(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def accuracy(self, predictions, targets):
 
@@ -215,7 +215,7 @@ class ProxE(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = torch.sigmoid(logits)
+        pred = logits
 
         return pred
 

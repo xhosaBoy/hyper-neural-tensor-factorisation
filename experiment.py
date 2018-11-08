@@ -320,10 +320,6 @@ class ExperimentProxE:
 
             predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
 
-            indexes = [(index + 1) for index in e2b_idx[range(5)]]
-            logger.info(f'random predictions {predictions[[range(5)], indexes]}')
-            logger.info(f'target predictions: {predictions[[range(5)], e2b_idx[range(5)]]}')
-
             for j in range(data_batch.shape[0]):
 
                 # Set ojbect predictions not in batch to zero
@@ -349,6 +345,10 @@ class ExperimentProxE:
                         hits[hits_level].append(1.0)
                     else:
                         hits[hits_level].append(0.0)
+
+        indexes = [(index + 1) for index in e2b_idx[range(10)]]
+        logger.info(f'random predictions {predictions[[range(10)], indexes]}')
+        logger.info(f'target predictions: {predictions[[range(10)], e2b_idx[range(10)]]}')
 
         print('Hits @10: {0}'.format(np.mean(hits[9])))
         print('Hits @3: {0}'.format(np.mean(hits[2])))

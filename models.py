@@ -136,7 +136,7 @@ class ProxE(torch.nn.Module):
 
     def accuracy(self, predictions, targets):
 
-        accuracy = torch.eq(torch.max(predictions, 0)[1], torch.max(targets, 0)[1])
+        accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy)
 
         return accuracy

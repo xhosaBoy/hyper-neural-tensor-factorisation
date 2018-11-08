@@ -176,10 +176,10 @@ class ProxE(torch.nn.Module):
         x = torch.relu(x)
 
         # Hpyer network
-        r = self.R(r2_idx)
-        k = self.fc1(r)
-        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
-        k = k.view(len(e2_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
+        r2 = self.R(r2_idx)
+        k2 = self.fc1(r2)
+        k2 = k2.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
+        k2 = k2.view(len(e2_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
@@ -188,7 +188,7 @@ class ProxE(torch.nn.Module):
         x2 = x2.permute(1, 0, 2, 3)
 
         # convnet
-        x2 = F.conv2d(x2, k, groups=e2.size(0))
+        x2 = F.conv2d(x2, k2, groups=e2.size(0))
         x2 = x2.view(e2.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e2.size(3) - self.filt_w + 1)
         x2 = x2.permute(0, 3, 4, 1, 2)
         x2 = torch.sum(x2, dim=3)

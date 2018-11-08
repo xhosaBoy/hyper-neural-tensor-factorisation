@@ -75,7 +75,6 @@ class Experiment:
 
         hits = []
         ranks = []
-
         for i in range(10):
             hits.append([])
 
@@ -178,9 +177,9 @@ class Experiment:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                data_batch, targets = self.get_batch(
-                    er_vocab, er_vocab_pairs, j)
+                data_batch, targets = self.get_batch(er_vocab, er_vocab_pairs, j)
                 opt.zero_grad()
+
                 e1_idx = torch.tensor(data_batch[:, 0])
                 r_idx = torch.tensor(data_batch[:, 1])
 
@@ -260,7 +259,7 @@ class ExperimentProxE:
 
         return po_vocab
 
-    def get_batch(self, train_data_idxs, sp_vocab, po_vocab_pairs, idx):
+    def get_batch(self, sp_vocab, train_data_idxs, po_vocab_pairs, idx):
 
         spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
@@ -272,10 +271,10 @@ class ExperimentProxE:
 
         po_batch = [(random.choice(predicates), entity) for entity, predicates in e2.items()]
         po_batch = sorted(po_batch, key=lambda x: x[1])
+        logger.debug(f'po batch: {po_batch[:5]}')
 
-        # build target: set all e2 relations for e1,r pair to true, binary loss
-        # at first
-        targets = np.zeros((len(sp_batch), len(po_batch)))
+        # build target: set all e2 relations for e1,r pair to true, binary loss  at first
+        targets = np.zeros((len(sp_batch), len(self.d.entities)))
 
         for idx, pair in enumerate(sp_batch):
             targets[idx, sp_vocab[pair]] = 1.
@@ -300,7 +299,7 @@ class ExperimentProxE:
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, po_batch, _ = self.get_batch(test_data_idxs, sp_vocab, po_vocab_pairs, i)
+            data_batch, po_batch, _ = self.get_batch(sp_vocab, test_data_idxs, po_vocab_pairs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
             e2b_idx = torch.tensor(data_batch[:, 2])
@@ -317,6 +316,10 @@ class ExperimentProxE:
                 e2_idx = e2_idx.cuda()
 
             predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
+
+            indexes = [(index + 1) for index in e2b_idx[range(5)]]
+            logger.debug(f'predictions {predictions[[range(5)], indexes]}')
+            logger.debug(f'predictions indexed: {predictions[[range(5)], e2b_idx[range(5)]]}')
 
             for j in range(data_batch.shape[0]):
 
@@ -353,32 +356,23 @@ class ExperimentProxE:
 
         # map entities, relations, and training data to ids
         logger.info('Training the %s model...' % self.model_name)
-        self.entity_idxs = {self.d.entities[
-            i]: i for i in range(len(self.d.entities))}
-        self.relation_idxs = {self.d.relations[
-            i]: i for i in range(len(self.d.relations))}
+        self.entity_idxs = {self.d.entities[i]: i for i in range(len(self.d.entities))}
+        self.relation_idxs = {self.d.relations[i]: i for i in range(len(self.d.relations))}
         train_data_idxs = self.get_data_idxs(self.d.train_data)
-        logger.info('Number of training data points: %d' %
-                    len(train_data_idxs))
+        logger.info('Number of training data points: %d' % len(train_data_idxs))
 
         if self.model_name.lower() == "proxe":
-            model = ProxE(self.d, self.ent_vec_dim,
-                          self.rel_vec_dim, self.batch_size, **self.kwargs)
+            model = ProxE(self.d, self.ent_vec_dim, self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
-            model = HypE(self.d, self.ent_vec_dim,
-                         self.rel_vec_dim, **self.kwargs)
+            model = HypE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "hyper":
-            model = HypER(self.d, self.ent_vec_dim,
-                          self.rel_vec_dim, **self.kwargs)
+            model = HypER(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "distmult":
-            model = DistMult(self.d, self.ent_vec_dim,
-                             self.rel_vec_dim, **self.kwargs)
+            model = DistMult(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "conve":
-            model = ConvE(self.d, self.ent_vec_dim,
-                          self.rel_vec_dim, **self.kwargs)
+            model = ConvE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "complex":
-            model = ComplEx(self.d, self.ent_vec_dim,
-                            self.rel_vec_dim, **self.kwargs)
+            model = ComplEx(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
 
         logger.info(f'Model parameters: {[value.numel() for value in model.parameters()]}')
 
@@ -417,7 +411,7 @@ class ExperimentProxE:
 
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {j + 1}')
-                spo_batch, po_batch, targets = self.get_batch(train_data_idxs, sp_vocab, po_vocab_pairs, j)
+                spo_batch, po_batch, targets = self.get_batch(sp_vocab, train_data_idxs, po_vocab_pairs, j)
                 opt.zero_grad()
 
                 e1_idx = torch.tensor(spo_batch[:, 0])

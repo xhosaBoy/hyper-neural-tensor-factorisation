@@ -350,11 +350,11 @@ class ExperimentProxE:
         logger.info(f'random predictions {predictions[[range(10)], indexes]}')
         logger.info(f'target predictions: {predictions[[range(10)], e2b_idx[range(10)]]}')
 
-        print('Hits @10: {0}'.format(np.mean(hits[9])))
-        print('Hits @3: {0}'.format(np.mean(hits[2])))
-        print('Hits @1: {0}'.format(np.mean(hits[0])))
-        print('Mean rank: {0}'.format(np.mean(ranks)))
-        print('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
+        logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
+        logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
+        logger.info('Hits @1: {0}'.format(np.mean(hits[0])))
+        logger.info('Mean rank: {0}'.format(np.mean(ranks)))
+        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
 
     def train_and_eval(self):
 

@@ -346,7 +346,7 @@ class ExperimentProxE:
                     else:
                         hits[hits_level].append(0.0)
 
-        indexes = [(index + 1) for index in e2b_idx[range(5, stop=None, step=1)]]
+        indexes = [(index + 1) for index in e2b_idx[range(5)]]
         logger.info(f'random predictions {predictions[[range(5)], indexes]}')
         logger.info(f'target predictions: {predictions[[range(5)], e2b_idx[range(5)]]}')
 

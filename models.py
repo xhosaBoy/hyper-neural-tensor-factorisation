@@ -132,7 +132,7 @@ class ProxE(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.BCEWithLogitsLoss()
+        self.loss = torch.nn.MultiLabelSoftMarginLoss()
 
     def accuracy(self, predictions, targets):
 

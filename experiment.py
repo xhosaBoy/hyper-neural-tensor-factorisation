@@ -346,9 +346,9 @@ class ExperimentProxE:
                     else:
                         hits[hits_level].append(0.0)
 
-        indexes = [(index + 1) for index in e2b_idx[range(10)]]
-        logger.info(f'random predictions {predictions[[range(10)], indexes]}')
-        logger.info(f'target predictions: {predictions[[range(10)], e2b_idx[range(10)]]}')
+        indexes = [(index + 1) for index in e2b_idx[range(5, stop=None, step=1)]]
+        logger.info(f'random predictions {predictions[[range(5)], indexes]}')
+        logger.info(f'target predictions: {predictions[[range(5)], e2b_idx[range(5)]]}')
 
         logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
         logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
@@ -422,7 +422,6 @@ class ExperimentProxE:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 r2_idx = torch.tensor(po_batch[:, 0])
                 e2_idx = torch.tensor(po_batch[:, 1])
-                targets = torch.max(targets, 1)[1] # crossentropy loss expects intgers in the range [0, C - 1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')

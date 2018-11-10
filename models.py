@@ -101,7 +101,7 @@ class HypER(torch.nn.Module):
         return pred
 
 
-class ProxE(torch.nn.Module):
+class HypERPlus(torch.nn.Module):
 
     def __init__(self, d, d1, d2, batch_size, **kwargs):
 
@@ -124,19 +124,18 @@ class ProxE(torch.nn.Module):
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
         self.bn2 = torch.nn.BatchNorm1d(d1)
 
-        fc_length = (1 - self.filt_h + 1) * \
-            (d1 - self.filt_w + 1) * self.out_channels
+        fc_length = (1 - self.filt_h + 1) * (d1 - self.filt_w + 1) * self.out_channels
         self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.MultiLabelSoftMarginLoss()
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def accuracy(self, predictions, targets):
 
-        accuracy = torch.eq(torch.max(predictions, 1)[1], torch.max(targets, 1)[1])
+        accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy).float() / targets.size(0)
 
         return accuracy

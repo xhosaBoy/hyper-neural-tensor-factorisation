@@ -221,7 +221,7 @@ class Experiment:
                     self.evaluate(model, self.d.test_data)
 
 
-class ExperimentProxE:
+class ExperimentHypERPlus:
 
     def __init__(self, model_name, d, learning_rate=0.001, ent_vec_dim=200, rel_vec_dim=200,
                  num_epoch=100, batch_size=128, decay_rate=0., cuda=False,
@@ -365,8 +365,8 @@ class ExperimentProxE:
         train_data_idxs = self.get_data_idxs(self.d.train_data)
         logger.info('Number of training data points: %d' % len(train_data_idxs))
 
-        if self.model_name.lower() == "proxe":
-            model = ProxE(self.d, self.ent_vec_dim, self.rel_vec_dim, self.batch_size, **self.kwargs)
+        if self.model_name.lower() == "hyperplus":
+            model = HypERPlus(self.d, self.ent_vec_dim, self.rel_vec_dim, self.batch_size, **self.kwargs)
         elif self.model_name.lower() == "hype":
             model = HypE(self.d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif self.model_name.lower() == "hyper":
@@ -422,6 +422,7 @@ class ExperimentProxE:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 r2_idx = torch.tensor(po_batch[:, 0])
                 e2_idx = torch.tensor(po_batch[:, 1])
+                targets = torch.max(targets, 1)[1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')

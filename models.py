@@ -131,10 +131,11 @@ class HypERPlus(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.CrossEntropyLoss()
+        self.loss = torch.nn.BCELoss()
 
     def accuracy(self, predictions, targets):
 
+        targets = torch.max(targets, 1)[1]
         accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy).float() / targets.size(0)
 
@@ -187,7 +188,6 @@ class HypERPlus(torch.nn.Module):
 
         # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
-        x2 = self.bn0(e2)
         x2 = self.inp_drop(x2)
         x2 = x2.permute(1, 0, 2, 3)
 
@@ -217,7 +217,7 @@ class HypERPlus(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = logits
+        pred = F.sigmoid(logits)
 
         return pred
 

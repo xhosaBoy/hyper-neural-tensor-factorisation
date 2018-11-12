@@ -276,6 +276,7 @@ class ExperimentHypERPlus:
 
         po_batch = [(random.choice(predicates), entity) for entity, predicates in e2.items()]
         po_batch = sorted(po_batch, key=lambda x: x[1])
+
         logger.debug(f'po batch: {po_batch[:5]}')
 
         # build target: set all e2 relations for e1,r pair to true, binary loss  at first
@@ -360,9 +361,11 @@ class ExperimentHypERPlus:
 
         # map entities, relations, and training data to ids
         logger.info('Training the %s model...' % self.model_name)
+
         self.entity_idxs = {self.d.entities[i]: i for i in range(len(self.d.entities))}
         self.relation_idxs = {self.d.relations[i]: i for i in range(len(self.d.relations))}
         train_data_idxs = self.get_data_idxs(self.d.train_data)
+
         logger.info('Number of training data points: %d' % len(train_data_idxs))
 
         if self.model_name.lower() == "hyperplus":
@@ -411,10 +414,12 @@ class ExperimentHypERPlus:
             losses = []
             np.random.shuffle(train_data_idxs)
 
+            iteration = 0
             for j in range(0, len(sp_vocab_pairs), self.batch_size):
 
                 if j % (self.batch_size * 100) == 0:
-                    logger.info(f'ITERATION: {j + 1}')
+                    logger.info(f'ITERATION: {iteration + 1}')
+
                 spo_batch, po_batch, targets = self.get_batch(sp_vocab, train_data_idxs, po_vocab_pairs, j)
                 opt.zero_grad()
 
@@ -422,7 +427,6 @@ class ExperimentHypERPlus:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 r2_idx = torch.tensor(po_batch[:, 0])
                 e2_idx = torch.tensor(po_batch[:, 1])
-                targets = torch.max(targets, 1)[1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
@@ -449,6 +453,8 @@ class ExperimentHypERPlus:
 
                 loss.backward()
                 opt.step()
+
+                iteration += 1
 
             if self.decay_rate:
                 scheduler.step()

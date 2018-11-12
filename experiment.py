@@ -427,6 +427,7 @@ class ExperimentHypERPlus:
                 r_idx = torch.tensor(spo_batch[:, 1])
                 r2_idx = torch.tensor(po_batch[:, 0])
                 e2_idx = torch.tensor(po_batch[:, 1])
+                targets = torch.max(targets, 1)[1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')

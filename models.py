@@ -117,8 +117,7 @@ class HypERPlus(torch.nn.Module):
 
         self.inp_drop = torch.nn.Dropout(kwargs["input_dropout"])
         self.hidden_drop = torch.nn.Dropout(kwargs["hidden_dropout"])
-        self.feature_map_drop = torch.nn.Dropout2d(
-            kwargs["feature_map_dropout"])
+        self.feature_map_drop = torch.nn.Dropout2d(kwargs["feature_map_dropout"])
 
         self.bn0 = torch.nn.BatchNorm2d(self.in_channels)
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
@@ -131,11 +130,10 @@ class HypERPlus(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def accuracy(self, predictions, targets):
 
-        targets = torch.max(targets, 1)[1]
         accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy).float() / targets.size(0)
 
@@ -178,7 +176,7 @@ class HypERPlus(torch.nn.Module):
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        x = F.relu(x)
+        x = x
 
         # Hpyer network
         r2 = self.R(r2_idx)
@@ -188,7 +186,7 @@ class HypERPlus(torch.nn.Module):
 
         # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
-        x2 = self.inp_drop(x2)
+        x2 = self.inp_drop(e2)
         x2 = x2.permute(1, 0, 2, 3)
 
         # convnet
@@ -203,7 +201,7 @@ class HypERPlus(torch.nn.Module):
         x2 = x2.view(e2.size(0), -1)
         x2 = self.fc(x2)
         x2 = self.hidden_drop(x2)
-        x2 = F.relu(x2)
+        x2 = x2
 
         logger.debug(f'x size: {x.size()}')
         logger.debug(f'x2 size: {x2.size()}')
@@ -217,7 +215,7 @@ class HypERPlus(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = F.sigmoid(logits)
+        pred = logits
 
         return pred
 

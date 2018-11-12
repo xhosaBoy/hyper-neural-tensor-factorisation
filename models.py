@@ -131,11 +131,11 @@ class HypERPlus(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.MultiLabelSoftMarginLoss()
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def accuracy(self, predictions, targets):
 
-        accuracy = torch.eq(torch.max(predictions, 1)[1], torch.max(targets, 1)[1])
+        accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy).float() / targets.size(0)
 
         return accuracy
@@ -199,12 +199,10 @@ class HypERPlus(torch.nn.Module):
         x2 = x2.permute(0, 3, 1, 2).contiguous()
 
         # regularisation
-        x2 = self.bn1(x2)
         x2 = self.feature_map_drop(x2)
         x2 = x2.view(e2.size(0), -1)
         x2 = self.fc(x2)
         x2 = self.hidden_drop(x2)
-        x2 = self.bn2(x2)
         x2 = F.relu(x2)
 
         logger.debug(f'x size: {x.size()}')

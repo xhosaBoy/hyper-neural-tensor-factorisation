@@ -131,7 +131,7 @@ class HypERPlus(torch.nn.Module):
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.MultiLabelSoftMarginLoss()
 
     def accuracy(self, predictions, targets):
 
@@ -177,7 +177,7 @@ class HypERPlus(torch.nn.Module):
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        x = torch.relu(x)
+        x = F.relu(x)
 
         # Hpyer network
         r2 = self.R(r2_idx)
@@ -205,7 +205,7 @@ class HypERPlus(torch.nn.Module):
         x2 = self.fc(x2)
         x2 = self.hidden_drop(x2)
         x2 = self.bn2(x2)
-        x2 = torch.relu(x2)
+        x2 = F.relu(x2)
 
         logger.debug(f'x size: {x.size()}')
         logger.debug(f'x2 size: {x2.size()}')
@@ -219,7 +219,7 @@ class HypERPlus(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = torch.sigmoid(logits)
+        pred = logits
 
         return pred
 

@@ -349,7 +349,7 @@ class ExperimentHypERPlus:
             logger.debug(f'first predictions rankings: {sort_idxs[0][:10]}')
 
             for j in range(data_batch.shape[0]):
-                rank = np.where(sort_idxs[j] == e2_idx_map[e2_idx[j].item()])[0][0]
+                rank = np.where(sort_idxs[j] == e2_idx_map[e2_idx_srt[j].item()])[0][0]
                 ranks.append(rank + 1)
 
                 logger.debug(f'rank for target {j}: {rank}')

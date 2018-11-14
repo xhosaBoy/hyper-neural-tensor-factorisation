@@ -264,34 +264,47 @@ class ExperimentHypERPlus:
 
         return po_vocab
 
-    def get_batch(self, sp_vocab, train_data_idxs, po_vocab_pairs, idx):
+    def get_batch(self, sp_vocab, train_data_idxs, idx):
 
         spo_batch = train_data_idxs[idx:min(idx + self.batch_size, len(train_data_idxs))]
         sp_batch = [(triple[0], triple[1]) for triple in spo_batch]
+        spo_batch = np.array(spo_batch)
 
-        # sample random value an entity is part of
-        e2 = defaultdict(list)
-        for pair in po_vocab_pairs:
-            e2[pair[1]].append(pair[0])
+        e2_idx = spo_batch[:, 2]
+        e2_idx_srt = np.sort(e2_idx)
 
-        po_batch = [(random.choice(predicates), entity) for entity, predicates in e2.items()]
-        po_batch = sorted(po_batch, key=lambda x: x[1])
+        e2_idx_map = {}
+        for i in range(e2_idx.shape[0]):
+            e2_idx_map[e2_idx_srt[i]] = i
 
-        logger.debug(f'po batch: {po_batch[:5]}')
+        # Build new e2_idx mapping for batch
+        sp_vocab_batch = defaultdict(list)
+        for pair in sp_batch:
+            for entity in sp_vocab[pair]:
+                if entity in e2_idx:
+                    sp_vocab_batch[pair].append(e2_idx_map[entity])  # 41
 
         # build target: set all e2 relations for e1,r pair to true, binary loss  at first
-        targets = np.zeros((len(sp_batch), len(self.d.entities)))
+        targets = np.zeros((len(sp_batch), e2_idx.shape[0]))
 
         for idx, pair in enumerate(sp_batch):
-            targets[idx, sp_vocab[pair]] = 1.
+            targets[idx, sp_vocab_batch[pair]] = 1.
         targets = torch.FloatTensor(targets)
 
         if self.cuda:
             targets = targets.cuda()
 
-        return np.array(spo_batch), np.array(po_batch), targets
+        r2_idx = spo_batch[:, 1]
+        e2_idx_srt_index = torch.sort(torch.Tensor(e2_idx))[1]
+        r2_idx_srt = [r2_idx[e2_idx_srt_index[i]] for i in range(e2_idx_srt.shape[0])]
+        r2_idx_srt = np.array(r2_idx_srt)
 
-    def evaluate(self, model, data, po_vocab_pairs):
+        logger.debug(f'po: {[tuple((p, o)) for p, o in zip(r2_idx, e2_idx)][:5]}')
+        logger.debug(f'po_srt: {[(r2_idx_srt[e2_idx_map[e2_idx[i]]], e2_idx_srt[e2_idx_map[e2_idx[i]]]) for i in range(5)]}')
+
+        return spo_batch, e2_idx_srt, r2_idx_srt, targets
+
+    def evaluate(self, model, data):
 
         hits = []
         ranks = []
@@ -305,38 +318,38 @@ class ExperimentHypERPlus:
 
         for i in range(0, len(test_data_idxs), self.batch_size):
 
-            data_batch, po_batch, _ = self.get_batch(sp_vocab, test_data_idxs, po_vocab_pairs, i)
+            data_batch, _, _, _ = self.get_batch(sp_vocab, test_data_idxs, i)
             e1_idx = torch.tensor(data_batch[:, 0])
             r_idx = torch.tensor(data_batch[:, 1])
-            e2b_idx = torch.tensor(data_batch[:, 2])
-            r2_idx = torch.tensor(po_batch[:, 0])
-            e2_idx = torch.tensor(po_batch[:, 1])
+            e2_idx = torch.tensor(data_batch[:, 2])
+            r2_idx = torch.tensor(data_batch[:, 1])
 
             if self.cuda:
                 e1_idx = e1_idx.cuda()
                 r_idx = r_idx.cuda()
-                e2b_idx = e2b_idx.cuda()
-                r2_idx = r2_idx.cuda()
                 e2_idx = e2_idx.cuda()
+                r2_idx = r2_idx.cuda()
 
-            predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
+            # TO DO: handle samples < batch_size
+            if e1_idx.size(0) < self.batch_size:
+                break
 
-            for j in range(data_batch.shape[0]):
+            predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
 
-                # Set ojbect predictions not in batch to zero
-                filt = sp_vocab[(data_batch[j][0], data_batch[j][1])]
-                target_value = predictions[j, e2b_idx[j]].item()
-                predictions[j, filt] = 0.0
-                predictions[j, e2b_idx[j]] = target_value
+            # prepare target indecies
+            e2_idx_srt = np.sort(e2_idx)
+            e2_idx_map = {}
+            for i in range(e2_idx_srt.shape[0]):
+                e2_idx_map[e2_idx_srt[i]] = i # 37
 
             sort_values, sort_idxs = torch.sort(predictions, dim=1, descending=True)
             sort_idxs = sort_idxs.cpu().numpy()
 
-            logger.debug(f'first target index: {e2b_idx[0]}')
+            logger.debug(f'first target index: {e2_idx_srt[0]}')
             logger.debug(f'first predictions rankings: {sort_idxs[0][:10]}')
 
             for j in range(data_batch.shape[0]):
-                rank = np.where(sort_idxs[j] == e2b_idx[j])[0][0]
+                rank = np.where(sort_idxs[j] == e2_idx_map[e2_idx[j].item()])[0][0]
                 ranks.append(rank + 1)
 
                 logger.debug(f'rank for target {j}: {rank}')
@@ -347,9 +360,20 @@ class ExperimentHypERPlus:
                     else:
                         hits[hits_level].append(0.0)
 
-        indexes = [(index + 1) for index in e2b_idx[range(5)]]
-        logger.info(f'random predictions {predictions[[range(5)], indexes]}')
-        logger.info(f'target predictions: {predictions[[range(5)], e2b_idx[range(5)]]}')
+            if i % (self.batch_size * 100) == 0:
+
+                indexes_random = []
+                for j in range(5):
+                    index = e2_idx_map[e2_idx[j].item()]
+                    indexes_random.append(index + 1)
+
+                indexes_predictions = []
+                for j in range(5):
+                    index = e2_idx_map[e2_idx[j].item()]
+                    indexes_predictions.append(index)
+
+                logger.info(f'random predictions {predictions[[range(5)], indexes_random]}')
+                logger.info(f'target predictions: {predictions[[range(5)], indexes_predictions]}')
 
         logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
         logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
@@ -403,9 +427,6 @@ class ExperimentHypERPlus:
 
         logger.info('Starting training...')
 
-        po_vocab = self.get_po_vocab(train_data_idxs)
-        po_vocab_pairs = list(po_vocab.keys())
-
         for epoch in range(1, self.num_epoch + 1):
 
             logger.info(f'EPOCH: {epoch}')
@@ -420,13 +441,14 @@ class ExperimentHypERPlus:
                 if j % (self.batch_size * 100) == 0:
                     logger.info(f'ITERATION: {iteration + 1}')
 
-                spo_batch, po_batch, targets = self.get_batch(sp_vocab, train_data_idxs, po_vocab_pairs, j)
+                spo_batch, object_batch, relation_batch, targets = self.get_batch(sp_vocab, train_data_idxs, j)
                 opt.zero_grad()
 
                 e1_idx = torch.tensor(spo_batch[:, 0])
                 r_idx = torch.tensor(spo_batch[:, 1])
-                r2_idx = torch.tensor(po_batch[:, 0])
-                e2_idx = torch.tensor(po_batch[:, 1])
+                e2_idx = torch.tensor(object_batch)
+                r2_idx = torch.tensor(relation_batch)
+                targets = torch.max(targets, 1)[1]
 
                 logger.debug(f'e2 size: {e2_idx.size()}')
                 logger.debug(f'targets size: {targets.size()}')
@@ -435,10 +457,14 @@ class ExperimentHypERPlus:
                 if self.cuda:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
-                    r2_idx = r2_idx.cuda()
                     e2_idx = e2_idx.cuda()
+                    r2_idx = r2_idx.cuda()
 
-                predictions = model.forward(e1_idx, r_idx, r2_idx, e2_idx)
+                # TO DO: handle samples < batch_size
+                if e1_idx.size(0) < self.batch_size:
+                    break
+
+                predictions = model.forward(e1_idx, r_idx, e2_idx, r2_idx)
                 logger.debug(f'preditions size: {predictions.size()}')
 
                 if self.label_smoothing:
@@ -465,7 +491,7 @@ class ExperimentHypERPlus:
 
             model.eval()
             with torch.no_grad():
-                self.evaluate(model, self.d.valid_data, po_vocab_pairs)
+                self.evaluate(model, self.d.valid_data)
                 # if not epoch % 2:
                 #     print("Test:")
                 #     self.evaluate(model, self.d.test_data)

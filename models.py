@@ -128,13 +128,12 @@ class HypERPlus(torch.nn.Module):
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
         self.fc2 = torch.nn.Linear(2 * d1, batch_size)
-        self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
+        self.register_parameter('b', Parameter(torch.zeros(batch_size)))
 
-        self.loss = torch.nn.BCELoss()
+        self.loss = torch.nn.CrossEntropyLoss()
 
     def accuracy(self, predictions, targets):
 
-        targets = torch.max(targets, 1)[1]
         accuracy = torch.eq(torch.max(predictions, 1)[1], targets)
         accuracy = torch.sum(accuracy).float() / targets.size(0)
 
@@ -146,7 +145,7 @@ class HypERPlus(torch.nn.Module):
         xavier_normal_(self.E.weight.data)
         xavier_normal_(self.R.weight.data)
 
-    def forward(self, e1_idx, r_idx, r2_idx, e2_idx):
+    def forward(self, e1_idx, r_idx, e2_idx, r2_idx):
 
         logger.debug('Begninning forward prop...')
         # only compute based on e2 batch
@@ -177,16 +176,17 @@ class HypERPlus(torch.nn.Module):
         x = self.fc(x)
         x = self.hidden_drop(x)
         x = self.bn2(x)
-        x = F.relu(x)
+        x = x
 
         # Hpyer network
         r2 = self.R(r2_idx)
-        k2 = self.fc1(r2)
+        k2 = self.fc1(r)
         k2 = k2.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
         k2 = k2.view(len(e2_idx) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         # get everything
         e2 = self.E(e2_idx).view(-1, 1, 1, self.E.weight.size(1))
+        x2 = self.bn0(e2)
         x2 = self.inp_drop(e2)
         x2 = x2.permute(1, 0, 2, 3)
 
@@ -198,11 +198,13 @@ class HypERPlus(torch.nn.Module):
         x2 = x2.permute(0, 3, 1, 2).contiguous()
 
         # regularisation
+        x2 = self.bn1(x2)
         x2 = self.feature_map_drop(x2)
         x2 = x2.view(e2.size(0), -1)
         x2 = self.fc(x2)
         x2 = self.hidden_drop(x2)
-        x2 = F.relu(x2)
+        x2 = self.bn2(x2)
+        x2 = x2
 
         logger.debug(f'x size: {x.size()}')
         logger.debug(f'x2 size: {x2.size()}')
@@ -216,7 +218,7 @@ class HypERPlus(torch.nn.Module):
         logger.debug(f'logits bias size: {logits.size()}')
 
         # prediction
-        pred = F.sigmoid(logits)
+        pred = logits
 
         return pred
 

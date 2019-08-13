@@ -226,9 +226,9 @@ class Experiment:
                 print("Validation:")
                 self.evaluate(model, d.valid_data)
 
-                # if not epoch % 2:
-                #     print("Test:")
-                #     self.evaluate(model, d.test_data)
+        model.eval()
+        print("Test:")
+        self.evaluate(model, d.test_data)
 
 
 if __name__ == '__main__':
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm', type=str, default="HypER", nargs="?",
                         help='Which algorithm to use: HypER, ConvE, DistMult, or ComplEx')
-    parser.add_argument('--dataset', type=str, default="WN18", nargs="?",
+    parser.add_argument('--dataset', type=str, default="FB15k-237", nargs="?",
                         help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
     args = parser.parse_args()
 
@@ -245,8 +245,6 @@ if __name__ == '__main__':
     dataset = args.dataset
     data_dir = "data/%s/" % dataset
     d = Data(data_dir=data_dir, reverse=True)
-    print(len(d.valid_data))
-    # print('num entities:', len(d.entities))
 
     torch.backends.cudnn.deterministic = True
     seed = 42

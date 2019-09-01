@@ -54,7 +54,7 @@ class ConvE(torch.nn.Module):
 
 class HypER(torch.nn.Module):
 
-    def __init__(self, d, d1, d2, **kwargs):
+    def __init__(self, d, d1, d2, weights_entity_matrix, weights_relation_matrix, **kwargs):
         super(HypER, self).__init__()
         self.in_channels = kwargs["in_channels"]
         self.out_channels = kwargs["out_channels"]
@@ -62,7 +62,13 @@ class HypER(torch.nn.Module):
         self.filt_w = kwargs["filt_w"]
 
         self.E = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
+        print(f'Entity weights 1: {self.E.weight.data}')
+        self.E.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
+        print(f'Entity weights 2: {self.E.weight.data}')
+        # self.E2 = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
+        # self.E2.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
         self.R = torch.nn.Embedding(len(d.relations), d2, padding_idx=0)
+        self.R.load_state_dict({'weight': torch.tensor(weights_relation_matrix)})
 
         self.inp_drop = torch.nn.Dropout(kwargs["input_dropout"])
         self.hidden_drop = torch.nn.Dropout(kwargs["hidden_dropout"])
@@ -81,51 +87,40 @@ class HypER(torch.nn.Module):
         self.fc1 = torch.nn.Linear(d2, fc1_length)
 
     def init(self):
-        xavier_normal_(self.E.weight.data)
-        xavier_normal_(self.R.weight.data)
+        # xavier_normal_(self.E.weight.data)
+        print(f'Entity weights 3: {self.E.weight.data}')
+        # xavier_normal_(self.E_2.weight.data)
+        # xavier_normal_(self.R.weight.data)
 
     def forward(self, e1_idx, r_idx):
-
+        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
         r = self.R(r_idx)
-        k = self.fc1(r)
-
-        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h,
-                   self.filt_w)  # MB, in_channels, out_channels, fh, fw
-        k = k.view(k.size(0) * self.in_channels * self.out_channels, 1, self.filt_h,
-                   self.filt_w)  # MB * in_channels * out_channels, fd, fh, fw
-
-        k = self.inp_drop(k)
-
-        e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))  # MB, in_channel, H, W
-
         x = self.bn0(e1)
         x = self.inp_drop(x)
 
-        x = x.permute(1, 0, 2, 3)  # in_channel, MB, H, W
+        k = self.fc1(r)
+        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
+        k = k.view(e1.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
+
+        x = x.permute(1, 0, 2, 3)
 
         x = F.conv2d(x, k, groups=e1.size(0))
-
-        x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) -
-                   self.filt_w + 1)  # MB, in_channel, out_channels, fh, fw
-
-        x = x.permute(0, 3, 4, 1, 2)  # MB, fh, fw, in_channel, out_channels
-        x = torch.sum(x, dim=3)  # MB, fh, fw, out_channels
-        x = x.permute(0, 3, 1, 2).contiguous()  # MB, out_channels, fh, fw
+        x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) - self.filt_w + 1)
+        x = x.permute(0, 3, 4, 1, 2)
+        x = torch.sum(x, dim=3)
+        x = x.permute(0, 3, 1, 2).contiguous()
 
         x = self.bn1(x)
         x = self.feature_map_drop(x)
-
-        x = x.view(e1.size(0), -1)  # out 128 x 6144
-
-        x = self.fc(x)  # out shape 128 x 200
-        x = F.relu(x)
-
+        x = x.view(e1.size(0), -1)
+        x = self.fc(x)
         x = self.hidden_drop(x)
-
-        logits = torch.mm(x, self.E.weight.transpose(1, 0))
-        logits += self.b.expand_as(logits)
-
-        return logits
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = torch.mm(x, self.E.weight.transpose(1, 0))
+        x += self.b.expand_as(x)
+        pred = F.sigmoid(x)
+        return pred
 
     def accuracy(self, logits, targets):
 

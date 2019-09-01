@@ -17,6 +17,8 @@ from torch.optim.lr_scheduler import ExponentialLR
 # internal
 from load_data import Data
 from models import *
+from pre_trained_word_vectors import *
+from entity_relation_dictionaries import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -35,7 +37,7 @@ logger.addHandler(file_handler)
 
 class Experiment:
 
-    def __init__(self, model_name, learning_rate=0.001, ent_vec_dim=200, rel_vec_dim=200,
+    def __init__(self, model_name, learning_rate=0.001, ent_vec_dim=300, rel_vec_dim=300,
                  num_iterations=100, batch_size=128, decay_rate=0., cuda=False,
                  input_dropout=0., hidden_dropout=0., feature_map_dropout=0.,
                  in_channels=1, out_channels=32, filt_h=3, filt_w=3, label_smoothing=0.):
@@ -137,18 +139,90 @@ class Experiment:
         logger.info('Mean rank: {0}'.format(np.mean(ranks)))
         logger.info('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
 
-    def train_and_eval(self):
+    def train_and_eval(self, entity2idx, language_model):
 
         logger.info("Training the %s model..." % model_name)
         self.entity_idxs = {d.entities[i]: i for i in range(len(d.entities))}
+
+        matrix_entity_len = len(d.entities)
+        print(f'matrix_entity_len: {matrix_entity_len}')
+        weights_entity_matrix = np.zeros((matrix_entity_len, 300))
+
+        entities_found = 0
+
+        for entity_idx in self.entity_idxs.keys():
+
+            i = self.entity_idxs[entity_idx]
+
+            entity_found = False
+            embedding = []
+
+            try:
+                entity_string = entity2idx[str(entity_idx)]
+                for entity in entity_string:
+                    embedding.append(language_model[entity])
+                    entity_found = True
+                weights_entity_matrix[i] = np.array(embedding).mean(axis=0)
+            except KeyError:
+                if not embedding:
+                    # weights_entity_matrix[i] = np.random.normal(scale=0.6, size=(300,))
+                    weights_entity_matrix[i] = np.random.randn(300,) * np.sqrt(1 / (300 - 1))
+                else:
+                    weights_entity_matrix[i] = np.array(embedding).mean(axis=0)
+            finally:
+                if entity_found:
+                    entities_found += 1
+
+        print(f'entities_found: {entities_found}')
+        print(f'entity ids: {len(self.entity_idxs.keys())}')
+        print(f'pre trained coverage: {(entities_found / len(self.entity_idxs.keys()) * 100):.2f}%')
+        self.entity_weights = weights_entity_matrix
+        print(f'weights_entity_matrix size: {weights_entity_matrix.size}')
+
         self.relation_idxs = {d.relations[i]: i for i in range(len(d.relations))}
+        relation2idx = {str(i): d.relations[i].replace(
+            '_', ' ').strip().split() for i in range(len(d.relations))}
+
+        matrix_relation_len = len(d.relations)
+        print(f'matrix_relation_len: {matrix_relation_len}')
+        weights_relation_matrix = np.zeros((matrix_relation_len, 300))
+        relations_found = 0
+
+        for relation_idx in self.relation_idxs.keys():
+
+            i = self.relation_idxs[relation_idx]
+
+            embedding = []
+            relation_found = False
+
+            try:
+                relation_string = relation2idx[str(i)]
+                for relation in relation_string:
+                    embedding.append(language_model[relation])
+                    relation_found = True
+                weights_relation_matrix[i] = np.array(embedding).mean(axis=0)
+            except KeyError:
+                if not embedding:
+                    # weights_relation_matrix[i] = np.random.normal(scale=0.6, size=(300,))
+                    weights_entity_matrix[i] = np.random.randn(300, ) * np.sqrt(1 / (300 - 1))
+                else:
+                    weights_relation_matrix[i] = np.array(embedding).mean(axis=0)
+            finally:
+                if relation_found:
+                    relations_found += 1
+
+        print(f'relations_found: {relations_found}')
+        self.relation_weights = weights_relation_matrix
+        print(f'weights_relation_matrix size: {weights_relation_matrix.size}')
+
         train_data_idxs = self.get_data_idxs(d.train_data)
         logger.info("Number of training data points: %d" % len(train_data_idxs))
 
         if model_name.lower() == "hype":
             model = HypE(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif model_name.lower() == "hyper":
-            model = HypER(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
+            model = HypER(d, self.ent_vec_dim, self.rel_vec_dim,
+                          weights_entity_matrix, weights_relation_matrix, **self.kwargs)
         elif model_name.lower() == "distmult":
             model = DistMult(d, self.ent_vec_dim, self.rel_vec_dim, **self.kwargs)
         elif model_name.lower() == "conve":
@@ -193,20 +267,22 @@ class Experiment:
                     e1_idx = e1_idx.cuda()
                     r_idx = r_idx.cuda()
 
-                logits = model.forward(e1_idx, r_idx)
-                logger.debug(f'logits size: {logits.size()}')
-                predictions = F.sigmoid(logits)
+                # logits = model.forward(e1_idx, r_idx)
+                # logger.debug(f'logits size: {logits.size()}')
+                # predictions = F.sigmoid(logits)
+                predictions = model.forward(e1_idx, r_idx)
+                logger.debug(f'logits size: {predictions.size()}')
 
                 if self.label_smoothing:
                     targets = ((1.0 - self.label_smoothing) * targets) + (1.0 / targets.size(1))
 
                 loss = self.loss(predictions, targets)
-                accuracy = model.accuracy(logits, targets).item()
+                accuracy = model.accuracy(predictions, targets).item()
 
-                if j % (self.batch_size * 10) == 0:
-                    logger.info(f'ITERATION: {iteration + 1}')
-                    logger.info(f'loss: {loss}')
-                    logger.info(f'accuracy: {accuracy}')
+                # if j % (self.batch_size * 10) == 0:
+                    # logger.info(f'ITERATION: {iteration + 1}')
+                    # logger.info(f'loss: {loss}')
+                    # logger.info(f'accuracy: {accuracy}')
 
                 loss.backward()
                 opt.step()
@@ -217,14 +293,16 @@ class Experiment:
                 scheduler.step()
             losses.append(loss.item())
 
-            print(epoch)
-            print(np.mean(losses))
+            logger.info(f'EPOCH: {epoch}')
+            logger.info(f'Loss: {np.mean(losses)}')
 
             model.eval()
             with torch.no_grad():
-
-                print("Validation:")
+                logger.info("Validation:")
                 self.evaluate(model, d.valid_data)
+                if (epoch % 10) == 0:
+                    logger.info("Test:")
+                    self.evaluate(model, d.test_data)
 
         model.eval()
         print("Test:")
@@ -236,7 +314,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm', type=str, default="HypER", nargs="?",
                         help='Which algorithm to use: HypER, ConvE, DistMult, or ComplEx')
-    parser.add_argument('--dataset', type=str, default="FB15k-237", nargs="?",
+    parser.add_argument('--dataset', type=str, default="WN18", nargs="?",
                         help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
     args = parser.parse_args()
 
@@ -254,8 +332,15 @@ if __name__ == '__main__':
     if torch.cuda.is_available:
         torch.cuda.manual_seed_all(seed)
 
-    experiment = Experiment(model_name, num_iterations=100, batch_size=128, learning_rate=0.001,
-                            decay_rate=0.99, ent_vec_dim=200, rel_vec_dim=200, cuda=False,
+    experiment = Experiment(model_name, num_iterations=200, batch_size=128, learning_rate=0.001,
+                            decay_rate=0.99, ent_vec_dim=300, rel_vec_dim=300, cuda=False,
                             input_dropout=0.2, hidden_dropout=0.3, feature_map_dropout=0.2,
                             in_channels=1, out_channels=32, filt_h=1, filt_w=9, label_smoothing=0.1)
-    experiment.train_and_eval()
+
+    entity2idx = load_dictionary(get_path(), tuple='entities')
+    # relation2idx = load_dictionary(get_path(), tuple='relations')
+
+    # language_model = load_pre_trained_vectors(get_glove_path())
+    language_model = load_fastext(get_lm_path())
+
+    experiment.train_and_eval(entity2idx, language_model)

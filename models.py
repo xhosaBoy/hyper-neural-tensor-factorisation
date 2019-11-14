@@ -65,8 +65,6 @@ class HypER(torch.nn.Module):
         print(f'Entity weights 1: {self.E.weight.data}')
         self.E.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
         print(f'Entity weights 2: {self.E.weight.data}')
-        # self.E2 = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
-        # self.E2.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
         self.R = torch.nn.Embedding(len(d.relations), d2, padding_idx=0)
         self.R.load_state_dict({'weight': torch.tensor(weights_relation_matrix)})
 
@@ -85,12 +83,6 @@ class HypER(torch.nn.Module):
         self.fc = torch.nn.Linear(fc_length, d1)
         fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.fc1 = torch.nn.Linear(d2, fc1_length)
-
-    def init(self):
-        # xavier_normal_(self.E.weight.data)
-        print(f'Entity weights 3: {self.E.weight.data}')
-        # xavier_normal_(self.E_2.weight.data)
-        # xavier_normal_(self.R.weight.data)
 
     def forward(self, e1_idx, r_idx):
         e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))

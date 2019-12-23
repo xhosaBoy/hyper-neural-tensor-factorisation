@@ -6,7 +6,7 @@ DROP TABLE if EXISTS test;
 
 CREATE TABLE entity(
    synset_id text PRIMARY KEY NOT NULL,
-   doc text,
+   name text,
    POS_tag text,
    sense_index integer,
    definition text
@@ -14,7 +14,7 @@ CREATE TABLE entity(
 
 CREATE TABLE relation(
    id SERIAL PRIMARY KEY,
-   doc text UNIQUE
+   name text UNIQUE
 );
 
 CREATE TABLE train(

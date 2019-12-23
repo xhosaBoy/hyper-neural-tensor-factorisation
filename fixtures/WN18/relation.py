@@ -93,10 +93,10 @@ def get_records(relationfile):
             _, relation, _ = line.strip().split('\t')
             logger.debug(f'relation: {relation}')
 
-            doc = relation.replace('_', ' ').strip()
-            logger.debug(f'doc: {doc}')
+            name = relation.replace('_', ' ').strip()
+            logger.debug(f'name: {name}')
 
-            record['doc'] = doc
+            record['name'] = name
 
             logger.debug(f'record: {record}')
             records.append(copy.copy(record))
@@ -111,7 +111,7 @@ def main():
                                 '*********',
                                 '127.0.0.1',
                                 '5432',
-                                'wn18')
+                                'tensor_factorisation_wn18')
 
     tablename = 'relation'
 
@@ -128,14 +128,14 @@ def main():
         if filename in experiment:
             logger.debug(f'filename: {filename}')
             filename = get_path('data/WN18', filename)
-            records = [{'doc': value} for value in set([relation['doc'] for relation in get_records(filename)])]
+            records = [{'name': value} for value in set([relation['name'] for relation in get_records(filename)])]
             logger.debug(f'records_train: {records}')
 
             number_of_records = len(records)
             logger.debug(f'number of relations so far: {number_of_records}')
             records.extend(records)
 
-    records = [{'doc': value} for value in set([relation['doc'] for relation in records])]
+    records = [{'name': value} for value in set([relation['name'] for relation in records])]
     logger.info(f'final relations: {records}')
     logger.info(f'final number of relations: {len(records)}')
     insert_records(records, tablename, connection)

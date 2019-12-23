@@ -95,8 +95,8 @@ def get_records(entityfile):
             logger.debug(f'synset_id: {synset_id}, intelligible_name: {intelligible_name}, defintion: {definition}')
 
             pattern = re.compile(r'^__([a-zA-Z0-9\'\._/-]*)_([A-Z]{2})_([0-9])')
-            doc = pattern.search(intelligible_name).group(1).replace('_', ' ')
-            logger.debug(f'doc: {doc}')
+            name = pattern.search(intelligible_name).group(1).replace('_', ' ')
+            logger.debug(f'name: {name}')
             POS_tag = pattern.search(intelligible_name).group(2)
             logger.debug(f'POS_tag: {POS_tag}')
             sense_index = pattern.search(intelligible_name).group(3)
@@ -105,7 +105,7 @@ def get_records(entityfile):
             definition = definition.replace('_', ' ')
 
             record['synset_id'] = synset_id
-            record['doc'] = doc
+            record['name'] = name
             record['POS_tag'] = POS_tag
             record['sense_index'] = int(sense_index)
             record['definition'] = definition
@@ -123,7 +123,7 @@ def main():
                                 '*********',
                                 '127.0.0.1',
                                 '5432',
-                                'wn18')
+                                'tensor_factorisation_wn18')
 
     tablename = 'entity'
 

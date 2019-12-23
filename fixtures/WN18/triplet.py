@@ -114,7 +114,7 @@ def main():
                                 '*********',
                                 '127.0.0.1',
                                 '5432',
-                                'wn18')
+                                'tensor_factorisation_wn18')
 
     tripletfile = get_path('data/WN18')
     logger.debug(f'tripletfile: {tripletfile}')
@@ -127,7 +127,7 @@ def main():
     for filename in filenames:
         if filename in experiment:
             tablename, _ = filename.split('.')
-            logger.debug(f'filename: {filename}')
+            logger.debug(f'tablename: {tablename}')
             filename = get_path('data/WN18', filename)
             records = get_records(filename)
             logger.debug(f'training records: {records}')

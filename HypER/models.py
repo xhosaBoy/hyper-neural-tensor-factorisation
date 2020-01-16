@@ -1,6 +1,20 @@
+# std
+import sys
+import logging
+
+# 3rd party
 import torch
 from torch.nn import functional as F, Parameter
 from torch.nn.init import xavier_normal_
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(logging.INFO)
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 
 class ConvE(torch.nn.Module):
@@ -18,13 +32,12 @@ class ConvE(torch.nn.Module):
         self.feature_map_drop = torch.nn.Dropout2d(kwargs["feature_map_dropout"])
         self.loss = torch.nn.BCELoss()
 
-        self.conv1 = torch.nn.Conv2d(self.in_channels, self.out_channels,
-                                     (self.filt_h, self.filt_w), 1, 0, bias=True)
+        self.conv1 = torch.nn.Conv2d(self.in_channels, self.out_channels, (self.filt_h, self.filt_w), 1, 0, bias=True)
         self.bn0 = torch.nn.BatchNorm2d(self.in_channels)
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
         self.bn2 = torch.nn.BatchNorm1d(d1)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
-        fc_length = (20-self.filt_h+1)*(20-self.filt_w+1)*self.out_channels
+        fc_length = (20 - self.filt_h + 1) * (20 - self.filt_w + 1) * self.out_channels
         self.fc = torch.nn.Linear(fc_length, d1)
 
     def init(self):
@@ -48,25 +61,35 @@ class ConvE(torch.nn.Module):
         x = F.relu(x)
         x = torch.mm(x, self.E.weight.transpose(1, 0))
         x += self.b.expand_as(x)
+
         pred = F.sigmoid(x)
+
         return pred
 
 
 class HypER(torch.nn.Module):
-
     def __init__(self, d, d1, d2, weights_entity_matrix, weights_relation_matrix, **kwargs):
         super(HypER, self).__init__()
+
+        self.E = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
+        logger.debug(f'Randomly initialised entity words: {self.E.weight.data}')
+        self.E.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
+        logger.debug(f'Pre-trained entity words: {self.E.weight.data}')
+
+        self.R = torch.nn.Embedding(len(d.relations), d2, padding_idx=0)
+        logger.debug(f'Randomly initialised relation words: {self.R.weight.data}')
+        self.R.load_state_dict({'weight': torch.tensor(weights_relation_matrix)})
+        logger.debug(f'Pre-trained relation words: {self.R.weight.data}')
+
         self.in_channels = kwargs["in_channels"]
         self.out_channels = kwargs["out_channels"]
         self.filt_h = kwargs["filt_h"]
         self.filt_w = kwargs["filt_w"]
 
-        self.E = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
-        print(f'Entity weights 1: {self.E.weight.data}')
-        self.E.load_state_dict({'weight': torch.tensor(weights_entity_matrix)})
-        print(f'Entity weights 2: {self.E.weight.data}')
-        self.R = torch.nn.Embedding(len(d.relations), d2, padding_idx=0)
-        self.R.load_state_dict({'weight': torch.tensor(weights_relation_matrix)})
+        fc_length = (1 - self.filt_h + 1) * (d1 - self.filt_w + 1) * self.out_channels
+        self.fc = torch.nn.Linear(fc_length, d1)
+        fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
+        self.fc1 = torch.nn.Linear(d2, fc1_length)
 
         self.inp_drop = torch.nn.Dropout(kwargs["input_dropout"])
         self.hidden_drop = torch.nn.Dropout(kwargs["hidden_dropout"])
@@ -74,53 +97,58 @@ class HypER(torch.nn.Module):
 
         self.bn0 = torch.nn.BatchNorm2d(self.in_channels)
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
-        self.bn2 = torch.nn.BatchNorm1d(d1)
+        self.bn2 = torch.nn.BatchNorm1d(d2)
 
-        print('num entities:', len(d.entities))
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
 
-        fc_length = (1 - self.filt_h + 1) * (d1 - self.filt_w + 1) * self.out_channels
-        self.fc = torch.nn.Linear(fc_length, d1)
-        fc1_length = self.in_channels * self.out_channels * self.filt_h * self.filt_w
-        self.fc1 = torch.nn.Linear(d2, fc1_length)
+        self.loss = torch.nn.BCELoss()
+
+    @staticmethod
+    def init():
+        logger.info('Initialising HypER with Pre trained Word Vectors...')
 
     def forward(self, e1_idx, r_idx):
         e1 = self.E(e1_idx).view(-1, 1, 1, self.E.weight.size(1))
-        r = self.R(r_idx)
+
+        # Convolutional input regularisation
         x = self.bn0(e1)
         x = self.inp_drop(x)
 
+        r = self.R(r_idx)
+
+        # Convolutional filter regularisation
+        r = self.bn2(r)
+        r = self.inp_drop(r)
+
         k = self.fc1(r)
-        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
-        k = k.view(e1.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         x = x.permute(1, 0, 2, 3)
 
+        k = k.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
+        k = k.view(e1.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
+
         x = F.conv2d(x, k, groups=e1.size(0))
+
         x = x.view(e1.size(0), 1, self.out_channels, 1 - self.filt_h + 1, e1.size(3) - self.filt_w + 1)
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
 
+        # Feature map regularisation
         x = self.bn1(x)
         x = self.feature_map_drop(x)
+
         x = x.view(e1.size(0), -1)
+
         x = self.fc(x)
-        x = self.hidden_drop(x)
-        x = self.bn2(x)
         x = F.relu(x)
+
         x = torch.mm(x, self.E.weight.transpose(1, 0))
         x += self.b.expand_as(x)
+
         pred = F.sigmoid(x)
+
         return pred
-
-    def accuracy(self, logits, targets):
-
-        targets = torch.max(targets, 1)[1]
-        accuracy = torch.eq(torch.max(logits, 1)[1], targets)
-        accuracy = torch.sum(accuracy).float() / targets.size(0)
-
-        return accuracy
 
 
 class HypE(torch.nn.Module):
@@ -132,7 +160,7 @@ class HypE(torch.nn.Module):
         self.filt_w = kwargs["filt_w"]
 
         self.E = torch.nn.Embedding(len(d.entities), d1, padding_idx=0)
-        r_dim = self.in_channels*self.out_channels*self.filt_h*self.filt_w
+        r_dim = self.in_channels * self.out_channels * self.filt_h * self.filt_w
         self.R = torch.nn.Embedding(len(d.relations), r_dim, padding_idx=0)
         self.inp_drop = torch.nn.Dropout(kwargs["input_dropout"])
         self.hidden_drop = torch.nn.Dropout(kwargs["hidden_dropout"])
@@ -143,7 +171,7 @@ class HypE(torch.nn.Module):
         self.bn1 = torch.nn.BatchNorm2d(self.out_channels)
         self.bn2 = torch.nn.BatchNorm1d(d1)
         self.register_parameter('b', Parameter(torch.zeros(len(d.entities))))
-        fc_length = (10-self.filt_h+1)*(20-self.filt_w+1)*self.out_channels
+        fc_length = (10 - self.filt_h + 1) * (20 - self.filt_w + 1) * self.out_channels
         self.fc = torch.nn.Linear(fc_length, d1)
 
     def init(self):
@@ -157,12 +185,12 @@ class HypE(torch.nn.Module):
         x = self.inp_drop(x)
 
         k = r.view(-1, self.in_channels, self.out_channels, self.filt_h, self.filt_w)
-        k = k.view(e1.size(0)*self.in_channels*self.out_channels, 1, self.filt_h, self.filt_w)
+        k = k.view(e1.size(0) * self.in_channels * self.out_channels, 1, self.filt_h, self.filt_w)
 
         x = x.permute(1, 0, 2, 3)
 
         x = F.conv2d(x, k, groups=e1.size(0))
-        x = x.view(e1.size(0), 1, self.out_channels, 10-self.filt_h+1, 20-self.filt_w+1)
+        x = x.view(e1.size(0), 1, self.out_channels, 10 - self.filt_h + 1, 20 - self.filt_w + 1)
         x = x.permute(0, 3, 4, 1, 2)
         x = torch.sum(x, dim=3)
         x = x.permute(0, 3, 1, 2).contiguous()
@@ -176,7 +204,9 @@ class HypE(torch.nn.Module):
         x = F.relu(x)
         x = torch.mm(x, self.E.weight.transpose(1, 0))
         x += self.b.expand_as(x)
+
         pred = F.sigmoid(x)
+
         return pred
 
 
@@ -198,8 +228,10 @@ class DistMult(torch.nn.Module):
         r = self.R(r_idx)
         e1 = self.bn0(e1)
         e1 = self.inp_drop(e1)
-        pred = torch.mm(e1*r, self.E.weight.transpose(1, 0))
+
+        pred = torch.mm(e1 * r, self.E.weight.transpose(1, 0))
         pred = F.sigmoid(pred)
+
         return pred
 
 
@@ -230,9 +262,12 @@ class ComplEx(torch.nn.Module):
         e1r = self.inp_drop(e1r)
         e1i = self.bn1(e1i)
         e1i = self.inp_drop(e1i)
-        pred = torch.mm(e1r*rr, self.Er.weight.transpose(1, 0)) +\
-            torch.mm(e1r*ri, self.Ei.weight.transpose(1, 0)) +\
-            torch.mm(e1i*rr, self.Ei.weight.transpose(1, 0)) -\
-            torch.mm(e1i*ri, self.Er.weight.transpose(1, 0))
+
+        pred = torch.mm(e1r * rr, self.Er.weight.transpose(1, 0)) \
+               + torch.mm(e1r * ri, self.Ei.weight.transpose(1, 0)) \
+               + torch.mm(e1i * rr, self.Ei.weight.transpose(1, 0)) \
+               - torch.mm(e1i * ri, self.Er.weight.transpose(1, 0))
+
         pred = F.sigmoid(pred)
+
         return pred

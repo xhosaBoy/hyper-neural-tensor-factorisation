@@ -23,15 +23,16 @@ def get_path(filename, dirname=None):
 
 
 def save_dictionary(knowledge_graph='wn', attribute='entity', delimiter=' '):
-    logger.info(f'Saving {attribute} dictionary ...')
+    logger.info(f'Saving {attribute} map ...')
+
     word2idx = {}
 
     dirname = 'data/FB15k'
     filename = 'mid2name.tsv'
     path = get_path(filename, dirname)
 
-    with open(path, 'r', encoding='utf-8') as readpickle:
-        tsv_reader = csv.reader(readpickle, delimiter=delimiter)
+    with open(path, 'r', encoding='utf-8') as entityfile:
+        tsv_reader = csv.reader(entityfile, delimiter=delimiter)
 
         for line in tsv_reader:
             idx = line[0]
@@ -45,20 +46,23 @@ def save_dictionary(knowledge_graph='wn', attribute='entity', delimiter=' '):
     with open(path, 'wb') as writepickle:
         pkl.dump(word2idx, writepickle)
 
-    logger.info(f'Successfully saved {attribute} dictionary!')
+    logger.info(f'Successfully saved {attribute} map!')
 
 
-def load_dictionary(path):
-    logger.info(f'Loading entity dictionary ...')
-    with open(path, 'rb') as readpickle:
-        word2idx = pkl.load(readpickle)
+def load_map(path):
+    logger.info(f'Loading attribute ids map ...')
 
-    logger.info(f'Successfully loaded entity dictionary!')
+    with open(path, 'rb') as attribute_ids_map:
+        word2idx = pkl.load(attribute_ids_map)
+
+    logger.info(f'Successfully loaded attribute ids map!')
+
     return word2idx
 
 
 if __name__ == '__main__':
     logger.info('START!')
+
     knowledge_graph = 'fb15k'
     attribute = 'entity'
 
@@ -67,5 +71,7 @@ if __name__ == '__main__':
     filename = f'{knowledge_graph}_{attribute}_map.pkl'
     dirname = 'language_models/FB15k'
     path = get_path(filename, dirname)
-    fb_entity_map = load_dictionary(path)
+
+    fb_entity_map = load_map(path)
+
     logger.info('DONE!')

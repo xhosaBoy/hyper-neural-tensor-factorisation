@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 # internal
 import language_models.language_model_manager as lmm
-import language_models.entity_relation_dictionaries as erd
+import language_models.attribute_mapper as am
 from load_data import Data
 from models import HypE, HypER, DistMult, ConvE, ComplEx
 
@@ -369,6 +369,7 @@ class Experiment:
 
 if __name__ == '__main__':
     logger.info('START!')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm',
                         type=str,
@@ -380,10 +381,16 @@ if __name__ == '__main__':
                         default="FB15k-237",
                         nargs="?",
                         help='Which dataset to use: FB15k, FB15k-237, WN18 or WN18RR')
+    parser.add_argument('--languagemodel',
+                        type=str,
+                        default="Fasttext",
+                        nargs="?",
+                        help='Which language model to use: Fasttext or Glove')
 
     args = parser.parse_args()
     model_name = args.algorithm
     dataset = args.dataset
+    language_model_name = args.languagemodel
 
     data_dir = os.path.join('data', dataset)
     logger.debug(f'data_dir: {data_dir}')
@@ -413,11 +420,21 @@ if __name__ == '__main__':
                             filt_w=9,
                             label_smoothing=0.1)
 
-    filename = 'fb15k_entity_map.pkl'
-    dirnmae = 'language_models/FB15k'
-    path = erd.get_path(filename, dirnmae)
-    entity2idx = erd.load_dictionary(path)
-    language_model = lmm.load_fastext()
+    if language_model_name == 'Fasttext':
+        language_model = lmm.load_fastext()
 
-    experiment.train_and_eval(entity2idx, language_model)
+        entityids_map = 'fb15k_entity_map.pkl'
+        dirnmae = 'language_models/FB15k'
+        path = am.get_path(entityids_map, dirnmae)
+
+        entity2idx = am.load_map(path)
+
+        experiment.train_and_eval(entity2idx, language_model)
+    else:
+        language_model_version = '6B.200'
+        dirname = 'language_models/glove'
+        language_model = lmm.load_glove(language_model_version, dirname)
+
+        experiment.train_and_eval(language_model)
+
     logger.info('DONE!')

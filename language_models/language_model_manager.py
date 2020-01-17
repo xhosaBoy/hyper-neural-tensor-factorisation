@@ -26,17 +26,18 @@ def get_path(filename, dirname=None):
     return path
 
 
-def save_language_model(filename, dirname=None):
-    logger.info(f'Saving language model ...')
+def save_language_model(language_model_data, language_model_version, dirname=None):
+    logger.info(f'Saving Glove language model version {language_model_version} ...')
+
     words = []
     word2idx = {}
     err = 0
 
-    language_modelname = '6B.200.dat'
-    language_model = get_path(language_modelname, dirname)
+    language_model_file = f'{language_model_version}.dat'
+    language_model = get_path(language_model_file, dirname)
     vectors = bcolz.carray(np.zeros(1), rootdir=language_model, mode='w')
 
-    path = get_path(filename, dirname)
+    path = get_path(language_model_data, dirname)
     with open(path, 'rb') as f:
         for idx, l in enumerate(f):
             line = l.decode().split()
@@ -57,41 +58,43 @@ def save_language_model(filename, dirname=None):
     vectors = bcolz.carray(vectors[1:].reshape((400000, 200)), rootdir=language_model, mode='w')
     vectors.flush()
 
-    filename = '6B.200_words.pkl'
+    filename = f'{language_model_version}_words.pkl'
     path = get_path(filename, dirname)
 
-    with open(path, 'wb') as language_model_values:
-        pickle.dump(words, language_model_values)
+    with open(path, 'wb') as language_model_words:
+        pickle.dump(words, language_model_words)
 
-    filename = '6B.200_idx.pkl'
+    filename = f'{language_model_version}_idx.pkl'
     path = get_path(filename, dirname)
 
-    with open(path, 'wb') as language_model_keys:
-        pickle.dump(word2idx, language_model_keys)
+    with open(path, 'wb') as language_model_ids:
+        pickle.dump(word2idx, language_model_ids)
 
-    logger.info(f'Successfully saved language model!')
+    logger.info(f'Saving Glove language model version {language_model_version} complete!')
 
 
-def load_glove(dirname=None):
+def load_glove(language_model_version, dirname=None):
     logger.info(f'Loading Glove language model ...')
-    filename = '6B.200.dat'
+
+    filename = f'{language_model_version}.dat'
     path = get_path(filename, dirname)
 
     vectors = bcolz.open(path)[:]
 
-    filename = '6B.200_words.pkl'
+    filename = f'{language_model_version}_words.pkl'
     path = get_path(filename, dirname)
 
     with open(path, 'rb') as wordsfile:
         words = pickle.load(wordsfile)
 
-    filename = '6B.200_idx.pkl'
+    filename = f'{language_model_version}_idx.pkl'
     path = get_path(filename, dirname)
 
     with open(path, 'rb') as word_ids:
         word2idx = pickle.load(word_ids)
 
     glove = {w: vectors[word2idx[w]] for w in words}
+
     logger.info(f'Loading Glove language model complete!')
 
     return glove
@@ -99,22 +102,26 @@ def load_glove(dirname=None):
 
 def load_fastext():
     logger.info(f'Loading Fasttext language model ...')
-    filename = 'cc.en.300.bin'
-    dirname = 'language_models/fasttext'
-    path = get_path(filename, dirname)
 
-    model = fasttext.load_model(path)
+    language_model_name = 'cc.en.300.bin'
+    dirname = 'language_models/fasttext'
+    path = get_path(language_model_name, dirname)
+
+    language_model = fasttext.load_model(path)
+
     logger.info(f'Loading Fasttext language model complete!')
 
-    return model
+    return language_model
 
 
 if __name__ == "__main__":
     logger.info('START!')
 
-    filename = 'glove.6B.200d.txt'
+    language_model_data = 'glove.6B.200d.txt'
+    language_model_version = '6B.200'
     dirname = 'language_models/glove'
-    # save_language_model(filename, dirname)
 
-    glove = load_glove(dirname)
+    save_language_model(language_model_data, language_model_version, dirname)
+    glove = load_glove(language_model_version, dirname)
+
     logger.info('DONE!')
